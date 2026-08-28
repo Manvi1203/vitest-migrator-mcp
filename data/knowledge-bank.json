@@ -1,0 +1,101 @@
+[
+  {
+    "id": "ESM_TYPE_ONLY_REEXPORT",
+    "name": "TypeScript Type-Only Re-export",
+    "errorPattern": "SyntaxError: The requested module '.*' does not provide an export named '(.*)'",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "In isolated ESM builds (Vite/Vitest), re-exporting TypeScript interfaces or types without 'export type' causes runtime SyntaxError because the emitted JS does not contain the named export.",
+    "rule": "Convert 'export { Symbol }' to 'export type { Symbol }' for all interfaces and type aliases.",
+    "commentTemplate": "// In isolated ESM builds (Vitest/Vite), TypeScript types without 'export type'\n// cause runtime errors: SyntaxError: The requested module does not provide an export named '$1'."
+  },
+  {
+    "id": "BUFFER_BROWSER_UNDEFINED",
+    "name": "Buffer Global in Browser",
+    "errorPattern": "ReferenceError: Buffer is not defined",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Playwright Chromium browser runtime does not have Node.js Buffer in global scope.",
+    "rule": "Guard 'instanceof Buffer' with 'typeof Buffer !== \"undefined\" && value instanceof Buffer' and use TextEncoder fallback for Buffer.from().",
+    "commentTemplate": "// In browser environments (Playwright Chromium under Vitest), Buffer is not globally defined.\n// Guard with typeof Buffer !== 'undefined' to prevent: ReferenceError: Buffer is not defined."
+  },
+  {
+    "id": "MOCHA_TIMEOUT_CHAINED",
+    "name": "Chained it().timeout() on Vitest",
+    "errorPattern": "TypeError: Cannot read properties of undefined \\(reading 'timeout'\\)",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "In Vitest, it() returns void, whereas in Mocha it returns a Test object. Calling it('...', fn).timeout(ms) throws TypeError.",
+    "rule": "Pass timeout as the 3rd argument in it('name', fn, ms) and guard this.timeout inside functions with 'if (this && typeof this.timeout === \"function\") this.timeout(ms)'.",
+    "commentTemplate": "// In Vitest it() returns void (Mocha returns Test object). Chaining .timeout() throws:\n// 'TypeError: Cannot read properties of undefined (reading 'timeout')'."
+  },
+  {
+    "id": "MOCHA_TEST_FULLTITLE",
+    "name": "Mocha this.test.fullTitle() in Vitest Context",
+    "errorPattern": "TypeError: Cannot read properties of undefined \\(reading 'fullTitle'\\)",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Vitest TestContext does not populate this.test like Mocha does.",
+    "rule": "Replace this.test.fullTitle() with this?.test?.fullTitle() ?? '<fallback>'.",
+    "commentTemplate": "// Vitest TestContext does not populate this.test like Mocha.\n// Use this?.test?.fullTitle() ?? '<fallback>' to prevent TypeError."
+  },
+  {
+    "id": "CJS_REQUIRE_IN_TEST",
+    "name": "CommonJS require() in Native ESM",
+    "errorPattern": "ReferenceError: require is not defined",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Vitest browser executes in native ESM where require() is not defined.",
+    "rule": "Convert 'const config = require(\"path/to/project.json\")' to 'import config from \"path/to/project.json\"'.",
+    "commentTemplate": "// Vitest browser runs in native ESM where require() is undefined.\n// Use ESM import to avoid ReferenceError: require is not defined."
+  },
+  {
+    "id": "FLOATING_PROMISE_UNHANDLED_REJECTION",
+    "name": "Floating Promise Unhandled Rejection",
+    "errorPattern": "Unhandled Rejection: (.*)",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Vitest registers an unhandledRejection listener on window. Fire-and-forget promises that intentionally fail (e.g. pingServer, enqueueAndForget) bubble to window unless caught.",
+    "rule": "Add .catch(() => {}) to background/fire-and-forget promise chains.",
+    "commentTemplate": "// Catch network/simulated errors so offline servers don't trigger unhandled promise rejections in Vitest."
+  },
+  {
+    "id": "PROTOTYPE_AUGMENTATION_MISSING",
+    "name": "Prototype Augmentation Not Loaded",
+    "errorPattern": "is not a function|undefined is not a function",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Karma/Webpack, side-effect prototype extensions were eagerly evaluated. In Vitest ESM, prototype augmentations must be explicitly imported in test setup or test utilities.",
+    "rule": "Explicitly import the implementation module (e.g. '../../src/api/pipeline_impl') in the test utility file.",
+    "commentTemplate": "// Explicitly import module to ensure prototype augmentations are loaded in isolated ESM mode."
+  },
+  {
+    "id": "ESM_BROWSER_MODULE_MOCKING",
+    "name": "Native ESM Module Mocking in Vitest Browser",
+    "errorPattern": "TypeError: Cannot redefine property|TypeError: ES Modules cannot be stubbed|Cannot spy on export",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In native ESM (Vite/Vitest browser mode), imported module namespaces are sealed/frozen objects. Both sinon.stub and vi.spyOn fail with 'Cannot redefine property' or 'ES Modules cannot be stubbed'. Module-level mocks must use vi.mock() with vi.hoisted() mock functions.",
+    "rule": "Use 'const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() })); vi.mock(\"path\", async importOriginal => ({ ...(await importOriginal()), targetFn: (...args) => mockFn(...args) }));'.",
+    "commentTemplate": "// In native ESM (Vitest browser), module namespaces are sealed. Use vi.mock() + vi.hoisted() for module mocking."
+  },
+  {
+    "id": "CJS_MOCHA_NODE_COMPATIBILITY",
+    "name": "CommonJS Mocha Node Test Compatibility with Vitest",
+    "errorPattern": "Error: Vitest cannot be imported in a CommonJS module using require\\(\\)",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "When running 'yarn test:node' with ts-node in CommonJS mode, top-level 'import { vi } from \"vitest\"' compiles to require(\"vitest\"), which throws because Vitest does not support CJS require().",
+    "rule": "Do not import { vi } from 'vitest' in test files. Instead: 1) Add src/types/vitest-globals.d.ts with ambient global vi and Chai matcher declarations; 2) Add test/setup.mocha.ts shim providing globalThis.vi fallback and chai matchers; 3) Set 'test:node' script with 'TS_NODE_FILES=true TS_NODE_CACHE=NO' and '--require test/setup.mocha.ts'.",
+    "commentTemplate": "// Avoid importing { vi } from 'vitest' directly in test files to preserve Mocha CommonJS test:node compatibility."
+  },
+  {
+    "id": "BROWSER_CLEAN_GLOBAL_ENVIRONMENT",
+    "name": "Clean Browser Global Environment (No Artificial Process Shim)",
+    "errorPattern": "typeof process !== 'undefined'|Environment detection false positive",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Injecting artificial globalThis.process into the browser test runner pollutes global scope and causes packages that detect runtime environment via 'typeof process !== \"undefined\"' or 'process.env' to incorrectly assume they are running in Node.js.",
+    "rule": "Do not inject synthetic process or process.env onto globalThis in browser test setups. Keep browser test runner global scope clean and native.",
+    "commentTemplate": "// Do not inject synthetic process onto globalThis in browser test runners to ensure environment detection remains accurate."
+  },
+  {
+    "id": "LOCKFILE_RESOLUTIONS_OVER_PACKAGE_JSON",
+    "name": "Lockfile Pinning over Package.json Resolutions",
+    "errorPattern": "TypeError: s.stringWidth is not a function|Yarn resolutions clutter",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Adding top-level 'resolutions' blocks to monorepo package.json clutters project configuration and introduces workspace-wide overrides. In Yarn 1.x workspaces, transient dependency conflicts (e.g. CommonJS string-width on Node 22) should be resolved and pinned directly in yarn.lock.",
+    "rule": "Resolve transitive dependency version constraints directly in yarn.lock to keep root package.json minimal and clean.",
+    "commentTemplate": "// Pin transitive dependency versions directly in yarn.lock rather than polluting package.json."
+  }
+]
