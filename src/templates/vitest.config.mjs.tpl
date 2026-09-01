@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-import { defineConfig } from 'vitest/config';
-import baseConfig from '../../config/vitest.base.mjs';
+import createBaseConfig from '../../config/vitest.base.mjs';
 
-export default defineConfig(baseConfig);
+export default createBaseConfig(import.meta.url);
