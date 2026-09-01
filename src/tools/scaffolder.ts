@@ -120,15 +120,13 @@ export default defineConfig({
     ? fs.readFileSync(templateSetupPath, 'utf8')
     : `import { use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { beforeAll, afterAll, beforeEach, afterEach, describe } from 'vitest';
+import { beforeAll, afterAll, describe } from 'vitest';
 
 use(chaiAsPromised);
 
-// Mocha global hook compatibility
+// Mocha compatibility aliases (before/after/context)
 (globalThis as any).before = beforeAll;
 (globalThis as any).after = afterAll;
-(globalThis as any).beforeEach = beforeEach;
-(globalThis as any).afterEach = afterEach;
 (globalThis as any).context = describe;
 `;
 
