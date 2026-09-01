@@ -8,6 +8,7 @@ export interface CodemodResult {
   timeoutsFixed: number;
   fullTitlesFixed: number;
   requiresFixed: number;
+  mochaHooksFixed: number;
 }
 
 export function applyCodemods(packagePath: string): CodemodResult {
@@ -29,7 +30,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
     typeExportsFixed: 0,
     timeoutsFixed: 0,
     fullTitlesFixed: 0,
-    requiresFixed: 0
+    requiresFixed: 0,
+    mochaHooksFixed: 0
   };
 
   for (const sourceFile of project.getSourceFiles()) {
@@ -87,7 +89,7 @@ export function applyCodemods(packagePath: string): CodemodResult {
     }
 
     // 2. Fix Mocha this.test.fullTitle() in test files
-    if (filePath.includes('/test/')) {
+    if (filePath.includes('/test/') || filePath.includes('.test.ts')) {
       const fullTitleCalls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)
         .filter(call => {
           const text = call.getExpression().getText();
@@ -99,10 +101,30 @@ export function applyCodemods(packagePath: string): CodemodResult {
         result.fullTitlesFixed++;
         fileChanged = true;
       }
+
+      // 3. Convert legacy Mocha hooks (before -> beforeAll, after -> afterAll, context -> describe)
+      const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+      for (const call of callExpressions) {
+        const expr = call.getExpression();
+        const exprName = expr.getText();
+        if (exprName === 'before') {
+          expr.replaceWithText('beforeAll');
+          result.mochaHooksFixed++;
+          fileChanged = true;
+        } else if (exprName === 'after') {
+          expr.replaceWithText('afterAll');
+          result.mochaHooksFixed++;
+          fileChanged = true;
+        } else if (exprName === 'context') {
+          expr.replaceWithText('describe');
+          result.mochaHooksFixed++;
+          fileChanged = true;
+        }
+      }
     }
 
-    // 3. Fix CJS require() in test files
-    if (filePath.includes('/test/')) {
+    // 4. Fix CJS require() in test files
+    if (filePath.includes('/test/') || filePath.includes('.test.ts')) {
       const varStatements = sourceFile.getVariableStatements();
       for (const stmt of varStatements) {
         const decls = stmt.getDeclarations();
