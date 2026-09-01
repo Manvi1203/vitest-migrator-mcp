@@ -97,5 +97,14 @@
     "rootCause": "Adding top-level 'resolutions' blocks to monorepo package.json clutters project configuration and introduces workspace-wide overrides. In Yarn 1.x workspaces, transient dependency conflicts (e.g. CommonJS string-width on Node 22) should be resolved and pinned directly in yarn.lock.",
     "rule": "Resolve transitive dependency version constraints directly in yarn.lock to keep root package.json minimal and clean.",
     "commentTemplate": "// Pin transitive dependency versions directly in yarn.lock rather than polluting package.json."
+  },
+  {
+    "id": "LEARNED_1788284967669",
+    "name": "ESM Module Stubbing on Global Defaults",
+    "errorPattern": "TypeError: ES Modules cannot be stubbed",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Native ESM, imported module namespaces are sealed and immutable (Object.isFrozen === true), preventing sinon.stub from rewriting exported functions.",
+    "rule": "Use global object property manipulation (or Object.defineProperty) instead of sinon.stub on imported ESM namespaces.",
+    "commentTemplate": "// Define throwing property or assign __FIREBASE_DEFAULTS__ on global instead of stubbing module exports\n// to avoid native ESM error: \"TypeError: ES Modules cannot be stubbed\""
   }
 ]

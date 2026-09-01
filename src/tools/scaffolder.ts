@@ -31,41 +31,70 @@ export function scaffoldConfig(packagePath: string, tier: string = 'tier1'): Sca
   const templateConfigPath = path.resolve(__dirname, '../templates/vitest.config.mjs.tpl');
   const configContent = fs.existsSync(templateConfigPath)
     ? fs.readFileSync(templateConfigPath, 'utf8')
-    : `import { defineConfig } from 'vitest/config';
+    : `import '../../scripts/ensure_playwright.js';
+import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import os from 'os';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function getConcurrency() {
+  if (process.env.VITEST_MAX_FORKS) {
+    return parseInt(process.env.VITEST_MAX_FORKS, 10);
+  }
+  const totalMemGB = os.totalmem() / (1024 * 1024 * 1024);
+  const memoryCap = Math.floor(totalMemGB / 1.5);
+  const cpuCap = process.env.CI ? 2 : Math.max(2, Math.floor(os.cpus().length / 2));
+  return Math.max(1, Math.min(12, Math.min(cpuCap, memoryCap)));
+}
+
+const maxForks = getConcurrency();
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['chai', 'chai-as-promised', 'sinon', 'sinon-chai']
+  },
   test: {
     globals: true,
+    reporters: process.env.GITHUB_ACTIONS ? ['default', 'github-actions'] : ['default'],
     projects: [
+      {
+        test: {
+          name: 'node',
+          globals: true,
+          environment: 'node',
+          pool: 'forks',
+          forks: { maxForks },
+          isolate: true,
+          passWithNoTests: false,
+          include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+          exclude: ['**/browser/**', '**/*.browser.test.ts'],
+          setupFiles: [
+            path.resolve(__dirname, 'test/setup.ts')
+          ]
+        }
+      },
       {
         test: {
           name: 'browser',
           globals: true,
           browser: {
             enabled: true,
-            provider: playwright({
-              launchOptions: {
-                channel: 'chrome',
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-              }
-            }),
-            headless: true,
-            instances: [{ browser: 'chromium' }]
+            provider: playwright(),
+            instances: [
+              { browser: 'chromium' }
+            ],
+            headless: true
           },
-          setupFiles: ['./test/setup.ts'],
-          include: ['test/unit/**/*.test.ts', 'test/**/*.test.ts'],
-          exclude: ['test/node/**', '**/*.node.test.ts']
-        }
-      },
-      {
-        test: {
-          name: 'node',
-          globals: true,
-          environment: 'node',
-          setupFiles: ['./test/setup.node.ts'],
-          include: ['test/**/*.test.ts'],
-          exclude: ['test/browser/**', '**/*.browser.test.ts']
+          isolate: true,
+          passWithNoTests: false,
+          include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+          exclude: ['**/node/**', '**/*.node.test.ts'],
+          setupFiles: [
+            path.resolve(__dirname, 'test/setup.ts')
+          ]
         }
       }
     ]
@@ -79,7 +108,7 @@ export default defineConfig({
     result.files.push(configPath);
   }
 
-  // 2. Write test/setup.ts for browser tests
+  // 2. Write test/setup.ts for tests
   const testDir = path.join(packagePath, 'test');
   if (!fs.existsSync(testDir)) {
     fs.mkdirSync(testDir, { recursive: true });
@@ -91,7 +120,16 @@ export default defineConfig({
     ? fs.readFileSync(templateSetupPath, 'utf8')
     : `import { use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { beforeAll, afterAll, beforeEach, afterEach, describe } from 'vitest';
+
 use(chaiAsPromised);
+
+// Mocha global hook compatibility
+(globalThis as any).before = beforeAll;
+(globalThis as any).after = afterAll;
+(globalThis as any).beforeEach = beforeEach;
+(globalThis as any).afterEach = afterEach;
+(globalThis as any).context = describe;
 `;
 
   if (!fs.existsSync(setupPath)) {
@@ -100,53 +138,37 @@ use(chaiAsPromised);
     result.files.push(setupPath);
   }
 
-  // 3. Write test/setup.node.ts for Vitest Node tests
-  const setupNodePath = path.join(testDir, 'setup.node.ts');
-  const templateSetupNodePath = path.resolve(__dirname, '../templates/setup.node.ts.tpl');
-  if (fs.existsSync(templateSetupNodePath) && !fs.existsSync(setupNodePath)) {
-    fs.writeFileSync(setupNodePath, fs.readFileSync(templateSetupNodePath, 'utf8'), 'utf8');
-    result.setupNodeCreated = true;
-    result.files.push(setupNodePath);
-  }
-
-  // 4. Write test/setup.mocha.ts for Node Mocha CommonJS test compatibility
-  const setupMochaPath = path.join(testDir, 'setup.mocha.ts');
-  const templateSetupMochaPath = path.resolve(__dirname, '../templates/setup.mocha.ts.tpl');
-  if (fs.existsSync(templateSetupMochaPath) && !fs.existsSync(setupMochaPath)) {
-    fs.writeFileSync(setupMochaPath, fs.readFileSync(templateSetupMochaPath, 'utf8'), 'utf8');
-    result.setupMochaCreated = true;
-    result.files.push(setupMochaPath);
-  }
-
-  // 5. Write src/types/vitest-globals.d.ts for global ambient typing
+  // 3. Write src/types/vitest-globals.d.ts for global ambient typing
   const typesDir = path.join(packagePath, 'src/types');
   if (!fs.existsSync(typesDir)) {
     fs.mkdirSync(typesDir, { recursive: true });
   }
   const vitestGlobalsPath = path.join(typesDir, 'vitest-globals.d.ts');
   const templateVitestGlobalsPath = path.resolve(__dirname, '../templates/vitest-globals.d.ts.tpl');
-  if (fs.existsSync(templateVitestGlobalsPath) && !fs.existsSync(vitestGlobalsPath)) {
-    fs.writeFileSync(vitestGlobalsPath, fs.readFileSync(templateVitestGlobalsPath, 'utf8'), 'utf8');
+  const vitestGlobalsContent = fs.existsSync(templateVitestGlobalsPath)
+    ? fs.readFileSync(templateVitestGlobalsPath, 'utf8')
+    : `import 'vitest/globals';\n`;
+
+  if (!fs.existsSync(vitestGlobalsPath)) {
+    fs.writeFileSync(vitestGlobalsPath, vitestGlobalsContent, 'utf8');
     result.vitestGlobalsCreated = true;
     result.files.push(vitestGlobalsPath);
   }
 
-  // 6. Update package.json scripts while preserving Karma and Mocha Node tests
+  // 4. Update package.json scripts with clean, standardized vitest commands
   const pkgJsonPath = path.join(packagePath, 'package.json');
   if (fs.existsSync(pkgJsonPath)) {
     const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
     pkgJson.scripts = pkgJson.scripts || {};
 
     const hasSetup = pkgJson.scripts['testsetup'] ? 'yarn testsetup && ' : '';
-    const playwrightGuard = 'node ../../scripts/ensure_playwright.js && ';
 
     // Add unified and project Vitest scripts
-    pkgJson.scripts['test'] = 'yarn test:all';
-    pkgJson.scripts['test:all'] = `${hasSetup}${playwrightGuard}vitest run`;
-    pkgJson.scripts['test:browser'] = `${hasSetup}${playwrightGuard}vitest run --project=browser`;
-    pkgJson.scripts['test:browser:watch'] = 'vitest --project=browser';
+    pkgJson.scripts['test'] = 'run-p --npm-path npm lint test:all';
+    pkgJson.scripts['test:all'] = `${hasSetup}vitest run`;
+    pkgJson.scripts['test:browser'] = `${hasSetup}vitest run --project=browser`;
+    pkgJson.scripts['test:browser:debug'] = `${hasSetup}vitest --project=browser --browser.headless=false`;
     pkgJson.scripts['test:node'] = 'vitest run --project=node';
-    pkgJson.scripts['test:node:watch'] = 'vitest --project=node';
     pkgJson.scripts['test:ci'] = 'node ../../scripts/run_tests_in_ci.js -s test:all';
 
     // Add Vitest devDependencies

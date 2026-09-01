@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import '../../scripts/ensure_playwright.js';
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { fileURLToPath } from 'url';
@@ -52,8 +53,8 @@ export default defineConfig({
           forks: { maxForks },
           isolate: true,
           passWithNoTests: false,
-          include: ['test/**/*.test.ts'],
-          exclude: ['**/browser/**'],
+          include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+          exclude: ['**/browser/**', '**/*.browser.test.ts'],
           setupFiles: [
             path.resolve(__dirname, 'test/setup.ts')
           ]
@@ -73,8 +74,8 @@ export default defineConfig({
           },
           isolate: true,
           passWithNoTests: false,
-          include: ['test/**/*.test.ts'],
-          exclude: ['**/node/**'],
+          include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+          exclude: ['**/node/**', '**/*.node.test.ts'],
           setupFiles: [
             path.resolve(__dirname, 'test/setup.ts')
           ]
@@ -83,4 +84,3 @@ export default defineConfig({
     ]
   }
 });
-

@@ -15,31 +15,15 @@
  * limitations under the License.
  */
 
-/* eslint-disable import/no-extraneous-dependencies */
-import sinon from 'sinon';
-import chai from 'chai';
-import sinonChai from 'sinon-chai';
+import { use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { beforeAll, afterAll, beforeEach, afterEach, describe } from 'vitest';
 
-chai.use(sinonChai);
-chai.use(chaiAsPromised);
+use(chaiAsPromised);
 
-// Mocha compatibility aliases for before/after
+// Mocha global hook compatibility
 (globalThis as any).before = beforeAll;
 (globalThis as any).after = afterAll;
-
-afterEach(() => {
-  sinon.restore();
-});
-
-export function getTestTitle(ctx: any): string {
-  const parts: string[] = [];
-  let node = ctx?.task;
-  while (node && node.type !== 'file') {
-    if (node.name) {
-      parts.unshift(node.name);
-    }
-    node = node.suite;
-  }
-  return parts.join(' ');
-}
+(globalThis as any).beforeEach = beforeEach;
+(globalThis as any).afterEach = afterEach;
+(globalThis as any).context = describe;
