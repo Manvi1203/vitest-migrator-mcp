@@ -114,6 +114,11 @@ use(chaiAsPromised);
     pkgJson.scripts['test:node'] = 'vitest run --project=node';
     pkgJson.scripts['test:ci'] = 'node ../../scripts/run_tests_in_ci.js -s test:all';
 
+    // Delete obsolete nyc configuration block if present
+    if (pkgJson.nyc) {
+      delete pkgJson.nyc;
+    }
+
     fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf8');
     result.packageJsonUpdated = true;
     result.files.push(pkgJsonPath);
