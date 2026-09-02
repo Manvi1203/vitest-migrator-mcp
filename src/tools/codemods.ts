@@ -39,6 +39,9 @@ export function applyCodemods(packagePath: string): CodemodResult {
   for (const sourceFile of project.getSourceFiles()) {
     let fileChanged = false;
     const filePath = sourceFile.getFilePath();
+    if (filePath.includes('/dist/') || filePath.includes('/node_modules/') || filePath.endsWith('.d.ts')) {
+      continue;
+    }
 
     // 1. Fix Type-Only Re-exports
     for (const exportDecl of sourceFile.getExportDeclarations()) {
