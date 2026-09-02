@@ -106,5 +106,21 @@
     "rootCause": "In Native ESM, imported module namespaces are sealed and immutable (Object.isFrozen === true), preventing sinon.stub from rewriting exported functions.",
     "rule": "Use global object property manipulation (or Object.defineProperty) instead of sinon.stub on imported ESM namespaces.",
     "commentTemplate": "// Define throwing property or assign __FIREBASE_DEFAULTS__ on global instead of stubbing module exports\n// to avoid native ESM error: \"TypeError: ES Modules cannot be stubbed\""
+  },
+  {
+    "id": "GLOBAL_NAMESPACE_SHADOWING",
+    "name": "Avoid Shadowing Node.js Global Variable",
+    "errorPattern": "import \\* as global from|global\\.getGlobal\\(\\)",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Importing a module namespace as 'global' (e.g., 'import * as global from \"../src/global\"') shadows the Node.js global variable 'global', causing confusion and subtle bugs.",
+    "rule": "Never import a module namespace as 'global'. Use named imports like 'import { getGlobal } from \"../src/global\"'."
+  },
+  {
+    "id": "DANGEROUS_PROCESS_ENV_STUBBING",
+    "name": "Avoid Stubbing process.env to Undefined in Node.js",
+    "errorPattern": "stub\\(process, ['\"]env['\"]\\)\\.value\\(undefined\\)",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Stubbing process.env to undefined in Node.js is risky because Node.js internals, Vitest reporters, and async hooks depend on process.env being an object. Vitest runs tests in both Node and native Browser Chromium; browser tests naturally cover the 'typeof process === \"undefined\"' branch without needing synthetic stubs in Node.",
+    "rule": "Do not stub process.env to undefined in Node tests. Rely on native browser test execution to verify environments where process is undefined, and delete individual environment keys if needed."
   }
 ]

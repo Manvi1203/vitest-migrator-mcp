@@ -152,6 +152,44 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
+    // 5. Fix global namespace shadowing ('import * as global from ...')
+    const importDecls = sourceFile.getImportDeclarations();
+    for (const importDecl of importDecls) {
+      const namespaceImport = importDecl.getNamespaceImport();
+      if (namespaceImport && namespaceImport.getText() === 'global') {
+        const moduleSpecifier = importDecl.getModuleSpecifierValue();
+        importDecl.remove();
+        sourceFile.addImportDeclaration({
+          namedImports: ['getGlobal'],
+          moduleSpecifier
+        });
+
+        const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+        for (const call of calls) {
+          if (call.getExpression().getText() === 'global.getGlobal') {
+            call.getExpression().replaceWithText('getGlobal');
+          }
+        }
+        fileChanged = true;
+      }
+    }
+
+    // 6. Remove risky process.env stubbing in test hooks
+    if (filePath.includes('/test/') || filePath.includes('.test.ts')) {
+      const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+      for (const call of calls) {
+        const text = call.getText();
+        if (text.includes("stub(process, 'env').value(undefined)") ||
+            text.includes('stub(process, "env").value(undefined)')) {
+          const parentStmt = call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
+          if (parentStmt) {
+            parentStmt.remove();
+            fileChanged = true;
+          }
+        }
+      }
+    }
+
     if (fileChanged) {
       sourceFile.saveSync();
       result.filesModified.push(filePath);

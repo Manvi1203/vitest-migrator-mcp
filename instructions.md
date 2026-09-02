@@ -45,17 +45,20 @@ The package's existing Node tests (`yarn test:node` running Mocha + `ts-node` un
 
 ---
 
-## 4. Mandatory Error Commenting Rule
-Every single code modification made to fix a test error or compiler failure **must include a clear code comment citing the exact Vitest/Vite error message**.
+## 4. Clean Code Policy (PR Descriptions Over Code Comments)
+- **Zero Injected Comments**: Do NOT put explanatory comments, error messages, or debugging notes into test or source files. Keep all test and source files completely clean and idiomatic.
+- **Document in PR Descriptions**: Cite all technical context, error messages (such as `ReferenceError: process is not defined` or `TypeError: ES Modules cannot be stubbed`), and architectural rationale in the PR description instead.
 
-Example:
-```typescript
-// Guard this.timeout to avoid Vitest error:
-// "TypeError: Cannot read properties of undefined (reading 'timeout')"
-if (this && typeof this.timeout === 'function') {
-  this.timeout(20_000);
-}
-```
+---
+
+## 5. Review Hygiene & Architectural Pitfalls
+1. **Never Shadow Node.js `global`**:
+   - Avoid `import * as global from '../src/global'`. This shadows Node's global object and creates subtle bugs.
+   - Always use named imports: `import { getGlobal } from '../src/global'`.
+2. **Never Stub `process.env` to `undefined` in Node**:
+   - In Node.js, `process.env` is required by runtime internals, Vitest reporters, and async hooks. Stubbing it to `undefined` throws `TypeError: Cannot read properties of undefined`.
+   - Browser environments under Playwright Chromium already naturally execute where `typeof process === 'undefined'`, providing full test coverage without synthetic stubs in Node.
+   - If testing unset variables in Node, delete the specific key (e.g. `delete process.env.__FIREBASE_DEFAULTS__`).
 
 ---
 
