@@ -122,5 +122,23 @@
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Stubbing process.env to undefined in Node.js is risky because Node.js internals, Vitest reporters, and async hooks depend on process.env being an object. Vitest runs tests in both Node and native Browser Chromium; browser tests naturally cover the 'typeof process === \"undefined\"' branch without needing synthetic stubs in Node.",
     "rule": "Do not stub process.env to undefined in Node tests. Rely on native browser test execution to verify environments where process is undefined, and delete individual environment keys if needed."
+  },
+  {
+    "id": "LEARNED_1788375896139",
+    "name": "Resolved Error: ReferenceError: global is not defined...",
+    "errorPattern": "ReferenceError: global is not defined",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Browser environments under Playwright Chromium do not define Node.js global variable. Accessing global.__FIREBASE_DEFAULTS__ throws ReferenceError in browser.",
+    "rule": "Replace global.<var> with globalThis.<var> for cross-platform browser/node global access in tests.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1788375896146",
+    "name": "Resolved Error: TypeError: Cannot spy on export .* Modul...",
+    "errorPattern": "TypeError: Cannot spy on export .* Module namespace is not configurable in ESM",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In native ESM (Vitest browser mode), imported module namespaces are sealed and unconfigurable (Object.isFrozen === true).",
+    "rule": "Stub class prototype or instance methods instead of trying to stub sealed ESM module exports.",
+    "commentTemplate": ""
   }
 ]
