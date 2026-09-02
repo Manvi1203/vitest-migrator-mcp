@@ -140,5 +140,32 @@
     "rootCause": "In native ESM (Vitest browser mode), imported module namespaces are sealed and unconfigurable (Object.isFrozen === true).",
     "rule": "Stub class prototype or instance methods instead of trying to stub sealed ESM module exports.",
     "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1788377321953",
+    "name": "Resolved Error: State leakage from globalThis mutation...",
+    "errorPattern": "State leakage from globalThis mutation",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Setting globalThis properties in tests without a try...finally block leaves global state mutated if an assertion fails.",
+    "rule": "Wrap test logic in try...finally to ensure globalThis cleanups always execute.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1788377321958",
+    "name": "Resolved Error: Suite-level stubs cleaned up early by gl...",
+    "errorPattern": "Suite-level stubs cleaned up early by global afterEach restore",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Calling sinon.stub in beforeAll is undone after the first test if a global afterEach calls sinon.restore().",
+    "rule": "Use a dedicated sandbox (createSandbox()) for suite-level stubs and restore it in afterAll.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1788377321958",
+    "name": "Resolved Error: Silent test pass with 0 assertions in No...",
+    "errorPattern": "Silent test pass with 0 assertions in Node",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Wrapping entire test body in if (isFeatureAvailable()) causes test to pass silently with 0 assertions in unsupported environments.",
+    "rule": "Use it.skipIf(!isFeatureAvailable()) so the test runner properly reports the test as skipped.",
+    "commentTemplate": ""
   }
 ]
