@@ -114,15 +114,6 @@ use(chaiAsPromised);
     pkgJson.scripts['test:node'] = 'vitest run --project=node';
     pkgJson.scripts['test:ci'] = 'node ../../scripts/run_tests_in_ci.js -s test:all';
 
-    // Add Vitest devDependencies
-    pkgJson.devDependencies = pkgJson.devDependencies || {};
-    if (!pkgJson.devDependencies['vitest']) {
-      pkgJson.devDependencies['vitest'] = '4.1.10';
-    }
-    if (!pkgJson.devDependencies['@vitest/browser-playwright']) {
-      pkgJson.devDependencies['@vitest/browser-playwright'] = '4.1.10';
-    }
-
     fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf8');
     result.packageJsonUpdated = true;
     result.files.push(pkgJsonPath);
