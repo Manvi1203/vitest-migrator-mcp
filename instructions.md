@@ -59,6 +59,9 @@ The package's existing Node tests (`yarn test:node` running Mocha + `ts-node` un
    - In Node.js, `process.env` is required by runtime internals, Vitest reporters, and async hooks. Stubbing it to `undefined` throws `TypeError: Cannot read properties of undefined`.
    - Browser environments under Playwright Chromium already naturally execute where `typeof process === 'undefined'`, providing full test coverage without synthetic stubs in Node.
    - If testing unset variables in Node, delete the specific key (e.g. `delete process.env.__FIREBASE_DEFAULTS__`).
+3. **Direct Hook Migration (No Global Shims in setup.ts)**:
+   - Never add artificial global shims (e.g. `(globalThis as any).before = beforeAll`) to `test/setup.ts`. Keep `setup.ts` pristine.
+   - Always convert legacy Mocha hooks (`before` -> `beforeAll`, `after` -> `afterAll`, `context` -> `describe`) directly in test files to idiomatic Vitest globals.
 
 ---
 
