@@ -167,5 +167,14 @@
     "rootCause": "Wrapping entire test body in if (isFeatureAvailable()) causes test to pass silently with 0 assertions in unsupported environments.",
     "rule": "Use it.skipIf(!isFeatureAvailable()) so the test runner properly reports the test as skipped.",
     "commentTemplate": ""
+  },
+  {
+    "id": "EXPORTED_ENUM_AS_CONST_OBJECT",
+    "name": "Exported Enum to As Const Object & String Literal Type",
+    "errorPattern": "export const enum|export enum|Cannot redefine property.*enum|ES Modules cannot be stubbed",
+    "fixStrategy": "AST_TRANSFORM",
+    "rootCause": "Exported TypeScript enums generate runtime IIFEs that cannot be effectively tree-shaken, and const enums are stripped in isolated ESM transpilation. The repo-wide convention is to replace exported enums with an as const object and a string literal union type.",
+    "rule": "Replace 'export const? enum Foo { ... }' with 'export const Foo = { ... } as const; export type Foo = (typeof Foo)[keyof typeof Foo];'.",
+    "commentTemplate": "// Replace exported enum with as const object and string literal type for clean ESM tree-shaking and runtime availability."
   }
 ]

@@ -9,6 +9,7 @@ export interface CodemodResult {
   fullTitlesFixed: number;
   requiresFixed: number;
   mochaHooksFixed: number;
+  enumsConverted: number;
 }
 
 export function applyCodemods(packagePath: string): CodemodResult {
@@ -31,7 +32,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
     timeoutsFixed: 0,
     fullTitlesFixed: 0,
     requiresFixed: 0,
-    mochaHooksFixed: 0
+    mochaHooksFixed: 0,
+    enumsConverted: 0
   };
 
   for (const sourceFile of project.getSourceFiles()) {
@@ -188,6 +190,48 @@ export function applyCodemods(packagePath: string): CodemodResult {
           }
         }
       }
+    }
+
+    // 7. Convert exported enums / const enums to 'as const' object + string literal type
+    const enums = sourceFile.getEnums();
+    for (const enumDecl of enums) {
+      if (!enumDecl.isExported()) continue;
+
+      const enumName = enumDecl.getName();
+      const jsDocs = enumDecl.getJsDocs().map(d => d.getText()).join('\n');
+      const members = enumDecl.getMembers();
+
+      const memberLines = members.map(m => {
+        const name = m.getName();
+        let valText: string;
+        const init = m.getInitializer();
+        if (init) {
+          valText = init.getText();
+        } else {
+          const val = m.getValue();
+          if (typeof val === 'string') {
+            valText = JSON.stringify(val);
+          } else if (typeof val === 'number') {
+            valText = `${val}`;
+          } else {
+            valText = JSON.stringify(name);
+          }
+        }
+        const mDocs = m.getJsDocs().map(d => d.getText()).join('\n');
+        const prefix = mDocs ? `${mDocs}\n  ` : '  ';
+        return `${prefix}${name}: ${valText}`;
+      });
+
+      const jsDocPrefix = jsDocs ? `${jsDocs}\n` : '';
+      const replacementText = `${jsDocPrefix}export const ${enumName} = {
+${memberLines.join(',\n')}
+} as const;
+
+export type ${enumName} = (typeof ${enumName})[keyof typeof ${enumName}];`;
+
+      enumDecl.replaceWithText(replacementText);
+      result.enumsConverted++;
+      fileChanged = true;
     }
 
     if (fileChanged) {
