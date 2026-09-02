@@ -71,14 +71,8 @@ export default createBaseConfig(import.meta.url);
     ? fs.readFileSync(templateSetupPath, 'utf8')
     : `import { use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { beforeAll, afterAll, describe } from 'vitest';
 
 use(chaiAsPromised);
-
-// Mocha compatibility aliases (before/after/context)
-(globalThis as any).before = beforeAll;
-(globalThis as any).after = afterAll;
-(globalThis as any).context = describe;
 `;
 
   if (!fs.existsSync(setupPath)) {

@@ -75,12 +75,10 @@ export function applyCodemods(packagePath: string): CodemodResult {
           exportDecl.remove();
         }
 
-        const comment = `// In isolated ESM builds (Vitest/Vite), TypeScript types without 'export type'\n// cause runtime errors: SyntaxError: The requested module does not provide an export named '${typeExports[0]}'.`;
         sourceFile.addExportDeclaration({
           isTypeOnly: true,
           namedExports: typeExports,
-          moduleSpecifier: moduleSpecifier,
-          leadingTrivia: `\n${comment}\n`
+          moduleSpecifier: moduleSpecifier
         });
 
         result.typeExportsFixed += typeExports.length;
@@ -141,8 +139,7 @@ export function applyCodemods(packagePath: string): CodemodResult {
                 stmt.remove();
                 sourceFile.addImportDeclaration({
                   defaultImport: varName,
-                  moduleSpecifier: importPath,
-                  leadingTrivia: `// In Vitest ESM mode require() is undefined; using ESM import to avoid ReferenceError: require is not defined\n`
+                  moduleSpecifier: importPath
                 });
 
                 result.requiresFixed++;
