@@ -1,81 +1,72 @@
 # Migration Instructions & Architectural Invariants (`mcp-vitest-migrator`)
 
-These instructions define the mandatory rules and migration lifecycle for all AI agents and engineers migrating packages from **Karma** to **Vitest**.
+These instructions define the mandatory rules and migration lifecycle for all AI agents and engineers migrating packages from **Karma** to **Vitest** in the Firebase JS SDK.
 
 ---
 
-## 1. Karma Preservation Policy (CRITICAL)
-- **Do not delete, replace, or deprecate Karma**:
-  - Keep `karma.conf.js`, `karma.conf.browser.js`, and all Karma npm scripts (`test:browser`, `test:browser:unit`, `test:browser:integration`, `test:browser:debug`) completely intact.
-  - Vitest is introduced strictly as **additive** side-by-side runners:
-    - `"test:vitest:browser"`: `vitest run --config vitest.config.browser.mjs`
-    - `"test:vitest:browser:watch"`: `vitest --config vitest.config.browser.mjs`
-    - `"test:vitest:node"`: `vitest run --config vitest.config.node.mjs`
-    - `"test:vitest:node:watch"`: `vitest --config vitest.config.node.mjs`
+## 1. Full Karma Replacement Policy (CRITICAL)
+- **Replace Karma with Vitest completely**:
+  - Delete `karma.conf.js`, `karma.conf.browser.js`, and any legacy Karma configuration files.
+  - Delete obsolete `nyc` configuration blocks from `package.json`.
+  - Create `vitest.config.mjs` exporting the shared multi-project workspace configuration:
+    ```javascript
+    import createBaseConfig from '../../config/vitest.base.mjs';
+    export default createBaseConfig(import.meta.url);
+    ```
+  - Standardize `package.json` test scripts:
+    - `"test"`: `"run-p --npm-path npm lint test:all"`
+    - `"test:all"`: `"vitest run"`
+    - `"test:browser"`: `"vitest run --project=browser"`
+    - `"test:browser:debug"`: `"vitest --project=browser --browser.headless=false"`
+    - `"test:node"`: `"vitest run --project=node"`
+    - `"test:ci"`: `"node ../../scripts/run_tests_in_ci.js -s test:all"`
 
 ---
 
-## 2. Dual-Runner `yarn test:node` Compatibility Guarantee (CRITICAL)
-The package's existing Node tests (`yarn test:node` running Mocha + `ts-node` under CommonJS) **must pass with zero regressions**.
-
-### Mandatory Invariants for Test Files:
-1. **Never write `import { vi } from 'vitest'` in test files**:
-   - In CommonJS (`ts-node`), `import { vi } from 'vitest'` compiles to `require("vitest")`, which throws:
-     `Error: Vitest cannot be imported in a CommonJS module using require()`.
-   - **Solution**: Use ambient typing via `src/types/vitest-globals.d.ts` and `globals: true` in Vitest configs. Provide `test/setup.mocha.ts` shim for Mocha.
-2. **Never chain `.timeout()` on `it()`**:
-   - In Vitest, `it()` returns `void` (not Mocha's `Test` object). Calling `it('...', fn).timeout(ms)` throws:
-     `TypeError: Cannot read properties of undefined (reading 'timeout')`.
-   - **Solution**: Pass timeout as the 3rd argument `it('name', fn, ms)` or guard `this.timeout`:
-     ```typescript
-     if (this && typeof this.timeout === 'function') {
-       this.timeout(20000);
-     }
-     ```
-3. **Guard Mocha-specific context (`this.test.fullTitle()`)**:
-   - Replace `this.test.fullTitle()` with `this?.test?.fullTitle() ?? '<fallback>'` to avoid `TypeError: Cannot read properties of undefined (reading 'fullTitle')`.
+## 2. API Extractor Safety — Never Put Test Typings in `src/` (CRITICAL)
+- **Never place `vitest-globals.d.ts` or test types inside `src/`**:
+  - `api-extractor` runs during `yarn build` and analyzes all files in `src/`.
+  - Adding test-runner type augmentations to `src/` pollutes the TypeScript AST, causing API Extractor to alter public API declarations (e.g. renaming `assert` to `assert_2` in `common/api-review/*.api.md`).
+  - **Solution**: Keep all ambient test typings strictly in `test/types/` (or rely on `globals: true` in `config/vitest.base.mjs`).
 
 ---
 
-## 3. Module Mocking in Native ESM vs. CommonJS
-- In **Native ESM (Vitest Browser)**, imported module namespaces (`import * as mod from './mod'`) are sealed and immutable (`Object.isFrozen(mod) === true`). `sinon.stub(mod, 'export')` fails with `TypeError: Cannot redefine property`.
-- **Best Practice**:
-  - Prefer **Instance-Level or Dependency Injection** (e.g. `sinon.stub(service.client, 'method')` or `service._setFetchImpl(...)`). Object instances are always mutable across both ESM and CJS.
-  - For top-level module mocks, use ambient `vi.mock()` with `vi.hoisted()`.
+## 3. Const Enums & Downstream ESM Compatibility
+- **`preserveConstEnums` for exported enums**:
+  - If a package exports a `const enum` (such as `ComponentType` in `@firebase/component`), TypeScript strips it by default during compilation, emitting no runtime object in `dist/esm/index.esm.js`.
+  - Downstream packages importing the enum in native ESM (Vitest) will evaluate it to `undefined` at runtime.
+  - **Solution**: Add `compilerOptions: { preserveConstEnums: true }` to `rollup.config.js` in `typescriptPlugin` for any package exporting `const enum`s.
 
 ---
 
-## 4. Clean Code Policy (PR Descriptions Over Code Comments)
-- **Zero Injected Comments**: Do NOT put explanatory comments, error messages, or debugging notes into test or source files. Keep all test and source files completely clean and idiomatic.
-- **Document in PR Descriptions**: Cite all technical context, error messages (such as `ReferenceError: process is not defined` or `TypeError: ES Modules cannot be stubbed`), and architectural rationale in the PR description instead.
-
----
-
-## 5. Review Hygiene & Architectural Pitfalls
-1. **Never Shadow Node.js `global`**:
-   - Avoid `import * as global from '../src/global'`. This shadows Node's global object and creates subtle bugs.
-   - Always use named imports: `import { getGlobal } from '../src/global'`.
-2. **Never Stub `process.env` to `undefined` in Node**:
-   - In Node.js, `process.env` is required by runtime internals, Vitest reporters, and async hooks. Stubbing it to `undefined` throws `TypeError: Cannot read properties of undefined`.
-   - Browser environments under Playwright Chromium already naturally execute where `typeof process === 'undefined'`, providing full test coverage without synthetic stubs in Node.
-   - If testing unset variables in Node, delete the specific key (e.g. `delete process.env.__FIREBASE_DEFAULTS__`).
-3. **Direct Hook Migration (No Global Shims in setup.ts)**:
-   - Never add artificial global shims (e.g. `(globalThis as any).before = beforeAll`) to `test/setup.ts`. Keep `setup.ts` pristine.
-   - Always convert legacy Mocha hooks (`before` -> `beforeAll`, `after` -> `afterAll`, `context` -> `describe`) directly in test files to idiomatic Vitest globals.
+## 4. Test Invariants & Modern Best Practices
+1. **Direct Hook Migration (No Global Shims in `setup.ts`)**:
+   - Never add artificial global shims (e.g. `(globalThis as any).before = beforeAll`) to `test/setup.ts`.
+   - Always convert legacy Mocha hooks (`before` -> `beforeAll`, `after` -> `afterAll`, `context` -> `describe`) directly in test files.
+2. **Cross-Platform Global Access (`globalThis`)**:
+   - Browser environments under Playwright Chromium do not define Node's `global`. Always use `globalThis` instead of `global`.
+   - Never shadow Node's global object (`import * as global from '../src/global'`). Use named imports (`import { getGlobal } from '../src/global'`).
+3. **State Leakage Prevention (`try...finally`)**:
+   - Always wrap temporary mutations of `globalThis` (e.g. `globalThis.__FIREBASE_DEFAULTS__`) in `try...finally` blocks so cleanup runs even if assertions fail.
+4. **Dedicated Sinon Sandboxes in `beforeAll`**:
+   - Calling `sinon.stub()` directly in a `beforeAll` hook is fragile because a global `afterEach` calling `sinon.restore()` will un-stub it after the first test.
+   - Use a dedicated sandbox (`const sandbox = createSandbox();`) restored in `afterAll(() => sandbox.restore());`.
+5. **Conditional Tests (`it.skipIf`)**:
+   - Instead of wrapping test bodies in `if (isFeatureAvailable())` (which produces silent passes with 0 assertions), use `it.skipIf(!isFeatureAvailable())` so the runner explicitly tracks skipped tests.
+6. **Never Stub `process.env` to `undefined` in Node**:
+   - Node runtime internals and Vitest reporters require `process.env`. To test missing keys, `delete process.env[KEY]`. Native browser tests naturally run where `typeof process === 'undefined'`.
 
 ---
 
 ## 5. End-to-End Migration Workflow (The 6-Step Loop)
 
 1. **Classify**: Call `vitest_classify_package({ packagePath })` to determine package tier and dependencies.
-2. **Scaffold**: Call `vitest_scaffold_config({ packagePath, tier })` to generate:
-   - `vitest.config.browser.mjs` & `test/setup.ts`
-   - `vitest.config.node.mjs` & `test/setup.node.ts`
-   - `test/setup.mocha.ts` & `src/types/vitest-globals.d.ts`
-   - Update `package.json` with `test:vitest:browser` and `test:vitest:node`.
-3. **AST Codemods**: Call `vitest_apply_ast_codemods({ packagePath })` to automatically fix `export type`, `.timeout()`, and `require()`.
-4. **Verify Vitest Browser**: Call `vitest_run_verification({ packagePath, target: 'vitest-browser' })`.
-   - If errors occur: Query `vitest_lookup_knowledge_bank({ errorMessage })`, apply fix with exact error comment, and re-verify.
-5. **Verify Vitest Node**: Call `vitest_run_verification({ packagePath, target: 'vitest-node' })`.
-6. **Verify Legacy Mocha Node (`test:node`)**: Call `vitest_run_verification({ packagePath, target: 'mocha-node' })` to guarantee **zero regressions**.
-7. **Learn**: If an unindexed error was resolved, call `vitest_record_learning(...)` to save it for future migrations.
+2. **Scaffold**: Call `vitest_scaffold_config({ packagePath, tier })` to:
+   - Generate unified `vitest.config.mjs` & `test/setup.ts`
+   - Generate `test/types/vitest-globals.d.ts` (strictly inside `test/`)
+   - Remove legacy `karma.conf.js` files
+   - Update `package.json` test scripts and remove obsolete `nyc` block
+3. **AST Codemods**: Call `vitest_apply_ast_codemods({ packagePath })` to automatically migrate Mocha hooks, `this.test.fullTitle`, and `require()`.
+4. **Verify Tests**: Call `vitest_run_verification({ packagePath, target: 'vitest-all' })` to run both Node and Browser tests.
+5. **Verify Build & API Reports**: Run `yarn build` in the package to confirm TypeScript compilation, Rollup bundles, and `api-extractor` report parity.
+6. **Learn**: If an unindexed error was resolved, call `vitest_record_learning(...)` to save it to the shared Knowledge Bank.

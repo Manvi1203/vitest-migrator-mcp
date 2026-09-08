@@ -12,6 +12,7 @@ export interface ScaffoldResult {
   setupMochaCreated: boolean;
   vitestGlobalsCreated: boolean;
   packageJsonUpdated: boolean;
+  karmaRemoved: boolean;
   files: string[];
 }
 
@@ -23,6 +24,7 @@ export function scaffoldConfig(packagePath: string, tier: string = 'tier1'): Sca
     setupMochaCreated: false,
     vitestGlobalsCreated: false,
     packageJsonUpdated: false,
+    karmaRemoved: false,
     files: []
   };
 
@@ -81,8 +83,9 @@ use(chaiAsPromised);
     result.files.push(setupPath);
   }
 
-  // 3. Write src/types/vitest-globals.d.ts for global ambient typing
-  const typesDir = path.join(packagePath, 'src/types');
+  // 3. Write test/types/vitest-globals.d.ts for global ambient typing
+  // IMPORTANT: Keep strictly in test/ directory so API Extractor does not analyze it during yarn build
+  const typesDir = path.join(packagePath, 'test/types');
   if (!fs.existsSync(typesDir)) {
     fs.mkdirSync(typesDir, { recursive: true });
   }
@@ -96,6 +99,13 @@ use(chaiAsPromised);
     fs.writeFileSync(vitestGlobalsPath, vitestGlobalsContent, 'utf8');
     result.vitestGlobalsCreated = true;
     result.files.push(vitestGlobalsPath);
+  }
+
+  // Clean up legacy/polluting src/types/vitest-globals.d.ts if present
+  const obsoleteSrcVitestGlobals = path.join(packagePath, 'src/types/vitest-globals.d.ts');
+  if (fs.existsSync(obsoleteSrcVitestGlobals)) {
+    fs.unlinkSync(obsoleteSrcVitestGlobals);
+    result.files.push(`removed:${obsoleteSrcVitestGlobals}`);
   }
 
   // 4. Update package.json scripts with clean, standardized vitest commands
@@ -122,6 +132,20 @@ use(chaiAsPromised);
     fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + '\n', 'utf8');
     result.packageJsonUpdated = true;
     result.files.push(pkgJsonPath);
+  }
+
+  // 5. Remove legacy Karma configuration files
+  const karmaFiles = [
+    path.join(packagePath, 'karma.conf.js'),
+    path.join(packagePath, 'karma.conf.browser.js'),
+    path.join(packagePath, 'karma.conf.headless.js')
+  ];
+  for (const kf of karmaFiles) {
+    if (fs.existsSync(kf)) {
+      fs.unlinkSync(kf);
+      result.karmaRemoved = true;
+      result.files.push(`removed:${kf}`);
+    }
   }
 
   return result;

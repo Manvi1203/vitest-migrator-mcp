@@ -158,5 +158,23 @@
     "rootCause": "Wrapping entire test body in if (isFeatureAvailable()) causes test to pass silently with 0 assertions in unsupported environments.",
     "rule": "Use it.skipIf(!isFeatureAvailable()) so the test runner properly reports the test as skipped.",
     "commentTemplate": ""
+  },
+  {
+    "id": "PRESERVE_CONST_ENUMS_IN_BUILD",
+    "name": "Preserve Const Enums in Rollup Build for ESM Consumer Compatibility",
+    "errorPattern": "TypeError: Cannot read properties of undefined (reading '.*')|is not exported by",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "TypeScript const enums are stripped at compile time unless preserveConstEnums: true is enabled in compilerOptions. When downstream packages run under Vitest/Vite in native ESM mode, the imported enum object is undefined at runtime.",
+    "rule": "If a package exports a const enum used across the monorepo, ensure its rollup.config.js includes compilerOptions: { preserveConstEnums: true } in typescriptPlugin.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "NO_VITEST_GLOBALS_IN_SRC",
+    "name": "Do Not Place Ambient Test Typings in src/ Directory",
+    "errorPattern": "ae-missing-release-tag|assert_2|polluted API extractor",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Placing vitest-globals.d.ts inside src/ causes api-extractor during yarn build to analyze it as part of the public TypeScript program, generating unwanted diffs and symbol aliasing (e.g. assert renamed to assert_2) in common/api-review/*.api.md.",
+    "rule": "Never place vitest-globals.d.ts inside src/. Keep ambient test typings in test/types/ or rely on config/vitest.base.mjs globals: true.",
+    "commentTemplate": ""
   }
 ]
