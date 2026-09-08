@@ -183,8 +183,8 @@
     "errorPattern": "TypeError: ES Modules cannot be stubbed|Cannot spy on export",
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In native browser (Playwright Chromium) and Vite ESM execution, namespace objects from import * as mod are non-configurable and sealed. sinon.stub(mod, 'prop') fails because exports are read-only getters.",
-    "rule": "Hoist mock delegator with vi.hoisted(() => ({ mockTarget: { fn: null } })), vi.mock(modulePath, () => delegator), and a custom stub router function that intercepts sinon.stub(module, 'fn') to set mockTarget.fn.",
-    "commentTemplate": "// Module export stubbing in native ESM browser runner: use vi.hoisted mock delegator"
+    "rule": "Hoist mock delegator with vi.hoisted(() => ({ mockTarget: { fn: (..._args: any[]) => {} } })), vi.mock(modulePath, () => delegator), and stub(mod, method) routing to sinonStub(mockTarget, method) so Sinon sandbox automatically tracks and restores it via standard sinon.restore().",
+    "commentTemplate": "// Module export stubbing in native ESM browser runner: use vi.hoisted mock delegator with sinonStub(mockTarget, method)"
   },
   {
     "id": "GLOBAL_THIS_NORMALIZATION",
