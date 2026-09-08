@@ -176,5 +176,32 @@
     "rootCause": "Placing vitest-globals.d.ts inside src/ causes api-extractor during yarn build to analyze it as part of the public TypeScript program, generating unwanted diffs and symbol aliasing (e.g. assert renamed to assert_2) in common/api-review/*.api.md.",
     "rule": "Never place vitest-globals.d.ts inside src/. Keep ambient test typings in test/types/ or rely on config/vitest.base.mjs globals: true.",
     "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1788891732901",
+    "name": "ESM_BROWSER_MODULE_STUB_DELEGATOR",
+    "errorPattern": "TypeError: ES Modules cannot be stubbed|Cannot spy on export",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In native browser (Playwright Chromium) and Vite ESM execution, namespace objects from import * as mod are non-configurable and sealed. sinon.stub(mod, 'prop') fails because exports are read-only getters.",
+    "rule": "Hoist mock delegator with vi.hoisted(() => ({ mockTarget: { fn: null } })), vi.mock(modulePath, () => delegator), and a custom stub router function that intercepts sinon.stub(module, 'fn') to set mockTarget.fn.",
+    "commentTemplate": "// Module export stubbing in native ESM browser runner: use vi.hoisted mock delegator"
+  },
+  {
+    "id": "GLOBAL_THIS_NORMALIZATION",
+    "name": "Normalize Node-specific global to standard globalThis in tests",
+    "errorPattern": "ReferenceError: global is not defined",
+    "fixStrategy": "AST_CODEMOD",
+    "rootCause": "In native browser (Playwright Chromium) ESM test execution, Node.js global identifier is undefined. Using global directly (e.g. sinon.stub(global, ...)) causes ReferenceError.",
+    "rule": "Replace global identifier with standard ECMAScript globalThis in test files via AST codemod.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "MOCHA_RUNNER_SKIP_MIGRATION",
+    "name": "Migrate Mocha early return and this.skip() to Vitest conditional runners",
+    "errorPattern": "TypeError: this.skip is not a function|Cannot read properties of undefined (reading 'skip')",
+    "fixStrategy": "AST_CODEMOD",
+    "rootCause": "In Vitest, arrow functions in tests lose Mocha this context, and early returns inside describe() blocks still execute hooks. this.skip() throws TypeError.",
+    "rule": "Rewrite describe blocks with early returns to (condition ? describe.skip : describe) and this.skip() guards to (condition ? it : it.skip).",
+    "commentTemplate": "// eslint-disable-next-line no-restricted-properties"
   }
 ]

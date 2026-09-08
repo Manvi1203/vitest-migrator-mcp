@@ -63,7 +63,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'vitest_apply_ast_codemods',
-        description: 'Executes TypeScript AST transformations using ts-morph strictly on test files (test/**/*.ts) to fix Mocha hooks/titles, CJS require() calls, global shadowing, and env stubbing.',
+        description: 'Executes TypeScript AST transformations using ts-morph strictly on test files (test/**/*.ts) to fix Mocha hooks/titles, CJS require() calls, global shadowing, env stubbing, globalThis normalization, and legacy runner skips.',
         inputSchema: {
           type: 'object',
           properties: {
