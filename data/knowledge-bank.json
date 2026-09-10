@@ -203,5 +203,23 @@
     "rootCause": "In Vitest, arrow functions in tests lose Mocha this context, and early returns inside describe() blocks still execute hooks. this.skip() throws TypeError.",
     "rule": "Rewrite describe blocks with early returns to (condition ? describe.skip : describe) and this.skip() guards to (condition ? it : it.skip).",
     "commentTemplate": "// eslint-disable-next-line no-restricted-properties"
+  },
+  {
+    "id": "LEARNED_1788993034954",
+    "name": "Sinon Fake Timers Background Polling Leaks",
+    "errorPattern": "clock.runAll.*leaked retry|waitUntilFidRegistration.*timeout",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In afterEach, calling clock.runAll() fast-forwards fake timers past polling timeout thresholds, triggering retry loops that leak unhandled promises and rogue state into subsequent tests.",
+    "rule": "Do not call clock.runAll() in afterEach; use clock.restore() to safely discard pending timers. In tests with polling loops, advance only the necessary time and ensure loops conclude before test exits.",
+    "commentTemplate": "// Avoid clock.runAll() in afterEach when background polling loops are active to prevent timeout triggers and async leaks."
+  },
+  {
+    "id": "SINON_CHAI_MOCK_ASSERTIONS_MIGRATION",
+    "name": "Migrate legacy Sinon-Chai mock assertions to native Vitest matchers",
+    "errorPattern": "Sinon-Chai assertions left in code|calledOnce|toHaveBeenCalledTimes|toHaveBeenCalledWith|has\\.been\\.calledWith",
+    "fixStrategy": "AST_CODEMOD",
+    "rootCause": "Migrating from Sinon to Vitest mocks leaves legacy Sinon-Chai assertions (.to.have.been.calledOnce, .has.been.calledWith, .to.have.been.called, .to.not.have.been.called). While Vitest provides a compatibility layer, PR reviewers and automated bots (e.g. Gemini Code Assist) flag them as obsolete or non-idiomatic.",
+    "rule": "Convert legacy Sinon-Chai assertions to native Vitest mock assertions: .calledOnce -> toHaveBeenCalledTimes(1), .calledTwice -> toHaveBeenCalledTimes(2), .calledThrice -> toHaveBeenCalledTimes(3), .called -> toHaveBeenCalled(), .not.have.been.called -> not.toHaveBeenCalled(), and .calledWith(...) -> toHaveBeenCalledWith(...).",
+    "commentTemplate": ""
   }
 ]

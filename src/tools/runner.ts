@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import * as path from 'path';
+import * as fs from 'fs';
 
 export interface TestRunResult {
   success: boolean;
@@ -17,6 +17,17 @@ export function runVerification(
   target: 'vitest-browser' | 'vitest-node' | 'mocha-node' | 'karma-browser' = 'vitest-browser'
 ): Promise<TestRunResult> {
   return new Promise((resolve) => {
+    if (!fs.existsSync(packagePath)) {
+      resolve({
+        success: false,
+        exitCode: 1,
+        stdout: '',
+        stderr: `Directory not found: ${packagePath}`,
+        errors: [`Directory not found: ${packagePath}`]
+      });
+      return;
+    }
+
     let command: string;
     let args: string[];
 
@@ -42,6 +53,16 @@ export function runVerification(
         CI: 'true',
         PATH: `/usr/lib/jvm/java-21-openjdk-amd64/bin:${process.env.PATH}`
       }
+    });
+
+    proc.on('error', (err) => {
+      resolve({
+        success: false,
+        exitCode: 1,
+        stdout: '',
+        stderr: err.message,
+        errors: [err.message]
+      });
     });
 
     let stdout = '';

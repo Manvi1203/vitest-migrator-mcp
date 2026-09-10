@@ -55,6 +55,9 @@ These instructions define the mandatory rules and migration lifecycle for all AI
    - Instead of wrapping test bodies in `if (isFeatureAvailable())` (which produces silent passes with 0 assertions), use `it.skipIf(!isFeatureAvailable())` so the runner explicitly tracks skipped tests.
 6. **Never Stub `process.env` to `undefined` in Node**:
    - Node runtime internals and Vitest reporters require `process.env`. To test missing keys, `delete process.env[KEY]`. Native browser tests naturally run where `typeof process === 'undefined'`.
+7. **Migrate Legacy Sinon-Chai Mock Assertions to Native Vitest Matchers**:
+   - Never leave legacy Sinon-Chai assertions (`expect(x).to.have.been.calledOnce`, `expect(x).to.have.been.calledWith(...)`, `expect(x).has.been.calledWith(...)`, `expect(x).to.have.been.called`, `expect(x).to.not.have.been.called`) in migrated test suites.
+   - Although Vitest provides a runtime compatibility shim, PR reviewers and automated bots (e.g. Gemini Code Assist) flag them as obsolete or non-idiomatic. Always convert them to native Vitest matchers: `toHaveBeenCalledTimes(1)`, `toHaveBeenCalledWith(...)`, `toHaveBeenCalled()`, and `not.toHaveBeenCalled()`.
 
 ---
 

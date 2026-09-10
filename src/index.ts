@@ -6,11 +6,18 @@ import {
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
 
+import * as path from 'path';
 import { classifyPackage } from './tools/classifier.js';
 import { scaffoldConfig } from './tools/scaffolder.js';
 import { applyCodemods } from './tools/codemods.js';
 import { lookupError, recordLearning, loadKnowledgeBank } from './tools/knowledgeBank.js';
 import { runVerification } from './tools/runner.js';
+
+function resolvePackagePath(args: any): string {
+  const raw = args?.packagePath || args?.packageDir || '';
+  if (!raw) return process.cwd();
+  return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw);
+}
 
 const server = new Server(
   {
@@ -157,7 +164,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'vitest_classify_package': {
-        const pkgPath = String(args?.packagePath);
+        const pkgPath = resolvePackagePath(args);
         const classification = classifyPackage(pkgPath);
         return {
           content: [{ type: 'text', text: JSON.stringify(classification, null, 2) }]
@@ -165,7 +172,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'vitest_scaffold_config': {
-        const pkgPath = String(args?.packagePath);
+        const pkgPath = resolvePackagePath(args);
         const tier = args?.tier ? String(args.tier) : 'tier1';
         const scaffold = scaffoldConfig(pkgPath, tier);
         return {
@@ -174,7 +181,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'vitest_apply_ast_codemods': {
-        const pkgPath = String(args?.packagePath);
+        const pkgPath = resolvePackagePath(args);
         const codemod = applyCodemods(pkgPath);
         return {
           content: [{ type: 'text', text: JSON.stringify(codemod, null, 2) }]
@@ -195,7 +202,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'vitest_run_verification': {
-        const pkgPath = String(args?.packagePath);
+        const pkgPath = resolvePackagePath(args);
         const target = (args?.target as any) || 'vitest-browser';
         const run = await runVerification(pkgPath, target);
         return {
@@ -231,6 +238,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [{ type: 'text', text: `Tool error (${name}): ${error?.message || String(error)}` }]
     };
   }
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('vitest-migrator uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('vitest-migrator unhandled rejection:', reason);
 });
 
 async function run() {
