@@ -525,16 +525,37 @@ export function applyCodemods(packagePath: string): CodemodResult {
         const propAccess = expr.asKind(SyntaxKind.PropertyAccessExpression)!;
         if (propAccess.wasForgotten()) continue;
         const methodName = propAccess.getName();
+        const objText = propAccess.getExpression().getText();
         if (methodName === 'resetHistory') {
           propAccess.getNameNode().replaceWithText('mockClear');
           fileChanged = true;
           result.sinonMigrated++;
         } else if (
           methodName === 'restore' &&
-          propAccess.getExpression().getText() !== 'sinon' &&
-          propAccess.getExpression().getText() !== 'clock'
+          objText !== 'sinon' &&
+          objText !== 'clock'
         ) {
           propAccess.getNameNode().replaceWithText('mockRestore');
+          fileChanged = true;
+          result.sinonMigrated++;
+        } else if (methodName === 'resolves' && !objText.startsWith('expect(')) {
+          propAccess.getNameNode().replaceWithText('mockResolvedValue');
+          fileChanged = true;
+          result.sinonMigrated++;
+        } else if (methodName === 'rejects' && !objText.startsWith('expect(')) {
+          propAccess.getNameNode().replaceWithText('mockRejectedValue');
+          fileChanged = true;
+          result.sinonMigrated++;
+        } else if (methodName === 'returns') {
+          propAccess.getNameNode().replaceWithText('mockReturnValue');
+          fileChanged = true;
+          result.sinonMigrated++;
+        } else if (methodName === 'callsFake') {
+          propAccess.getNameNode().replaceWithText('mockImplementation');
+          fileChanged = true;
+          result.sinonMigrated++;
+        } else if (methodName === 'reset' || methodName === 'resetBehavior') {
+          propAccess.getNameNode().replaceWithText('mockReset');
           fileChanged = true;
           result.sinonMigrated++;
         }
@@ -548,11 +569,207 @@ export function applyCodemods(packagePath: string): CodemodResult {
     for (const typeRef of typeRefs) {
       if (typeRef.wasForgotten()) continue;
       const typeName = typeRef.getTypeName().getText();
-      if (typeName === 'SinonSpy' || typeName === 'SinonStub') {
+      if (
+        typeName === 'SinonSpy' ||
+        typeName === 'SinonStub' ||
+        typeName === 'sinon.SinonSpy' ||
+        typeName === 'sinon.SinonStub'
+      ) {
         typeRef.replaceWithText('MockInstance');
         needsMockInstanceImport = true;
         fileChanged = true;
         result.sinonMigrated++;
+      }
+    }
+
+    // 8f.2 Convert Sinon spy call inspect properties:
+    // firstCall.args -> mock.calls[0], secondCall.args -> mock.calls[1], etc.
+    const argsProps = sourceFile.getDescendantsOfKind(
+      SyntaxKind.PropertyAccessExpression
+    );
+    for (const prop of argsProps) {
+      if (prop.wasForgotten()) continue;
+      if (prop.getName() === 'args') {
+        const expr = prop.getExpression();
+        if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+          const pa: PropertyAccessExpression = expr.asKind(SyntaxKind.PropertyAccessExpression)!;
+          const callName = pa.getName();
+          const target = pa.getExpression().getText();
+          if (callName === 'firstCall') {
+            prop.replaceWithText(`${target}.mock.calls[0]`);
+            fileChanged = true;
+            result.sinonMigrated++;
+          } else if (callName === 'secondCall') {
+            prop.replaceWithText(`${target}.mock.calls[1]`);
+            fileChanged = true;
+            result.sinonMigrated++;
+          } else if (callName === 'thirdCall') {
+            prop.replaceWithText(`${target}.mock.calls[2]`);
+            fileChanged = true;
+            result.sinonMigrated++;
+          } else if (callName === 'lastCall') {
+            prop.replaceWithText(`${target}.mock.calls[${target}.mock.calls.length - 1]`);
+            fileChanged = true;
+            result.sinonMigrated++;
+          }
+        }
+      }
+    }
+
+    // 8f.3 Convert expect(stub.callCount).toBe(N) or expect(stub.callCount).toEqual(N)
+    const callCountAssertions = sourceFile.getDescendantsOfKind(
+      SyntaxKind.CallExpression
+    );
+    for (const call of callCountAssertions) {
+      if (call.wasForgotten()) continue;
+      const exprText = call.getExpression().getText();
+      if (exprText.endsWith('.toBe') || exprText.endsWith('.toEqual')) {
+        const parentExpect = call
+          .getExpression()
+          .asKind(SyntaxKind.PropertyAccessExpression)
+          ?.getExpression();
+        if (parentExpect && parentExpect.getKind() === SyntaxKind.CallExpression) {
+          const expectCall = parentExpect.asKind(SyntaxKind.CallExpression)!;
+          const arg = expectCall.getArguments()[0];
+          if (arg && arg.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const pa: PropertyAccessExpression = arg.asKind(SyntaxKind.PropertyAccessExpression)!;
+            const propName = pa.getName();
+            const target = pa.getExpression().getText();
+            if (propName === 'callCount') {
+              const countArg = call.getArguments().map(a => a.getText()).join(', ');
+              call.replaceWithText(`expect(${target}).toHaveBeenCalledTimes(${countArg})`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            } else if (propName === 'calledOnce') {
+              call.replaceWithText(`expect(${target}).toHaveBeenCalledTimes(1)`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            } else if (propName === 'calledTwice') {
+              call.replaceWithText(`expect(${target}).toHaveBeenCalledTimes(2)`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            } else if (propName === 'calledThrice') {
+              call.replaceWithText(`expect(${target}).toHaveBeenCalledTimes(3)`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            } else if (propName === 'called') {
+              const val = call.getArguments()[0]?.getText();
+              if (val === 'false') {
+                call.replaceWithText(`expect(${target}).not.toHaveBeenCalled()`);
+              } else {
+                call.replaceWithText(`expect(${target}).toHaveBeenCalled()`);
+              }
+              fileChanged = true;
+              result.sinonMigrated++;
+            } else if (propName === 'notCalled') {
+              call.replaceWithText(`expect(${target}).not.toHaveBeenCalled()`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            }
+          }
+        }
+      }
+    }
+
+    // 8f.4 Convert vi.spyOn(obj, prop).value(val) getter mocking
+    const spyOnValueCalls = sourceFile.getDescendantsOfKind(
+      SyntaxKind.CallExpression
+    );
+    for (const call of spyOnValueCalls) {
+      if (call.wasForgotten()) continue;
+      const expr = call.getExpression();
+      if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa: PropertyAccessExpression = expr.asKind(SyntaxKind.PropertyAccessExpression)!;
+        if (pa.getName() === 'value') {
+          const innerCall = pa.getExpression();
+          if (innerCall.getKind() === SyntaxKind.CallExpression) {
+            const ic = innerCall.asKind(SyntaxKind.CallExpression)!;
+            if (ic.getExpression().getText() === 'vi.spyOn') {
+              const args = ic.getArguments().map(a => a.getText());
+              const valArg = call.getArguments().map(a => a.getText()).join(', ');
+              call.replaceWithText(`vi.spyOn(${args[0]}, ${args[1]}, 'get').mockReturnValue(${valArg})`);
+              fileChanged = true;
+              result.sinonMigrated++;
+            }
+          }
+        }
+      }
+    }
+
+    // 8f.5 Convert remaining stub.callCount to stub.mock.calls.length
+    const callCountProps = sourceFile.getDescendantsOfKind(
+      SyntaxKind.PropertyAccessExpression
+    );
+    for (const prop of callCountProps) {
+      if (prop.wasForgotten()) continue;
+      if (prop.getName() === 'callCount') {
+        const target = prop.getExpression().getText();
+        prop.replaceWithText(`(${target}.mock.calls.length)`);
+        fileChanged = true;
+        result.sinonMigrated++;
+      }
+    }
+
+    // 8f.6 Convert Chai assert.* calls to native expect matchers
+    const assertCalls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+    for (const call of assertCalls) {
+      if (call.wasForgotten()) continue;
+      const expr = call.getExpression();
+      if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = expr.asKind(SyntaxKind.PropertyAccessExpression)!;
+        if (pa.getExpression().getText() === 'assert') {
+          const methodName = pa.getName();
+          const args = call.getArguments();
+          if (args.length >= 1) {
+            const actual = args[0].getText();
+            const expected = args.length >= 2 ? args[1].getText() : '';
+            if (methodName === 'equal' || methodName === 'strictEqual') {
+              call.replaceWithText(`expect(${actual}).toBe(${expected})`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'notEqual' || methodName === 'notStrictEqual') {
+              call.replaceWithText(`expect(${actual}).not.toBe(${expected})`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'deepEqual') {
+              call.replaceWithText(`expect(${actual}).toEqual(${expected})`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'notDeepEqual') {
+              call.replaceWithText(`expect(${actual}).not.toEqual(${expected})`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isTrue') {
+              call.replaceWithText(`expect(${actual}).toBe(true)`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isFalse') {
+              call.replaceWithText(`expect(${actual}).toBe(false)`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isNull') {
+              call.replaceWithText(`expect(${actual}).toBeNull()`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isNotNull') {
+              call.replaceWithText(`expect(${actual}).not.toBeNull()`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isUndefined') {
+              call.replaceWithText(`expect(${actual}).toBeUndefined()`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'isDefined' || methodName === 'exists') {
+              call.replaceWithText(`expect(${actual}).toBeDefined()`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            } else if (methodName === 'throws') {
+              call.replaceWithText(`expect(${actual}).toThrow(${expected})`);
+              fileChanged = true;
+              result.chaiMigrated++;
+            }
+          }
+        }
       }
     }
 
@@ -721,11 +938,15 @@ export function applyCodemods(packagePath: string): CodemodResult {
         chaiDecl.addNamedImport('chai');
         chaiDecl.setModuleSpecifier('vitest');
         fileChanged = true;
-      } else if (namedImports.length > 0) {
+        const hasAssertUsage = sourceFile
+          .getDescendantsOfKind(SyntaxKind.Identifier)
+          .some(id => id.getText() === 'assert' && id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression);
         const remainingNamed = namedImports.filter(ni => {
           const name = ni.getName();
           if (name === 'use' && !hasUseUsage) return false;
           if (name === 'chai' && !hasChaiUsage) return false;
+          if (name === 'assert' && !hasAssertUsage) return false;
+          if (name === 'expect') return false;
           return true;
         });
 
@@ -736,6 +957,34 @@ export function applyCodemods(packagePath: string): CodemodResult {
           chaiDecl.setModuleSpecifier('vitest');
           fileChanged = true;
         }
+      }
+    }
+
+    // 8i. Clean unused assert / expect imports from 'vitest'
+    const vitestImports = sourceFile.getImportDeclarations().filter(d => {
+      return d.getModuleSpecifierValue() === 'vitest';
+    });
+    for (const vDecl of vitestImports) {
+      if (vDecl.wasForgotten()) continue;
+      const namedImports = vDecl.getNamedImports();
+      for (const ni of namedImports) {
+        const name = ni.getName();
+        if (name === 'assert') {
+          const hasAssert = sourceFile
+            .getDescendantsOfKind(SyntaxKind.Identifier)
+            .some(id => id.getText() === 'assert' && id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression);
+          if (!hasAssert) {
+            ni.remove();
+            fileChanged = true;
+          }
+        } else if (name === 'expect') {
+          ni.remove();
+          fileChanged = true;
+        }
+      }
+      if (vDecl.getNamedImports().length === 0 && !vDecl.getDefaultImport()) {
+        vDecl.remove();
+        fileChanged = true;
       }
     }
 
@@ -769,13 +1018,13 @@ export function applyCodemods(packagePath: string): CodemodResult {
     }
 
     // 8k. Deduplicate and merge multiple Vitest import declarations
-    const vitestImports = sourceFile
+    const remainingVitestImports = sourceFile
       .getImportDeclarations()
       .filter(d => d.getModuleSpecifierValue() === 'vitest');
-    if (vitestImports.length > 1) {
-      const primary = vitestImports[0];
-      for (let i = 1; i < vitestImports.length; i++) {
-        const dup = vitestImports[i];
+    if (remainingVitestImports.length > 1) {
+      const primary = remainingVitestImports[0];
+      for (let i = 1; i < remainingVitestImports.length; i++) {
+        const dup = remainingVitestImports[i];
         for (const ni of dup.getNamedImports()) {
           const name = ni.getName();
           if (!primary.getNamedImports().some(p => p.getName() === name)) {
