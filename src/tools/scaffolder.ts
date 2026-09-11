@@ -161,6 +161,7 @@ export default config;
       pkgJson.scripts['test:node'] = 'vitest run --project=node';
     }
     pkgJson.scripts['test:ci'] = 'node ../../scripts/run_tests_in_ci.js -s test:all';
+    delete pkgJson.scripts['test:debug'];
 
     // Delete obsolete nyc configuration block if present
     if (pkgJson.nyc) {
