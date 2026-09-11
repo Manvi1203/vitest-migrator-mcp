@@ -241,5 +241,14 @@
     "rootCause": "Leaving legacy Chai assertions (.to.equal, .to.deep.equal, .to.throw) clutters code, risks runtime errors when Chai is uninstalled, and triggers bot/reviewer warnings.",
     "rule": "Convert all Chai assertions to native Vitest matchers: .to.equal -> .toBe, .to.deep.equal -> .toEqual, .to.throw -> .toThrow, .to.be.undefined -> .toBeUndefined, .to.be.null -> .toBeNull.",
     "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789088074605",
+    "name": "sinon_stub_methods_to_vitest_mock",
+    "errorPattern": "mock.*(resolves|returns|callsFake|rejects) is not a function",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Sinon stubs use resolves/returns/callsFake/rejects while Vitest MockInstance uses mockResolvedValue/mockReturnValue/mockImplementation/mockRejectedValue.",
+    "rule": "Transform Sinon stub methods to Vitest mock methods and convert calledOnce assertions to toHaveBeenCalledTimes(1).",
+    "commentTemplate": ""
   }
 ]

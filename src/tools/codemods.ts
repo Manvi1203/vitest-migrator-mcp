@@ -395,9 +395,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
     });
 
     for (const decl of sinonImports) {
+      if (decl.wasForgotten()) continue;
       const mod = decl.getModuleSpecifierValue();
-      const leadingComments = decl.getLeadingCommentRanges();
-      const commentText = leadingComments.map(c => c.getText()).join('\n');
       if (mod === 'sinon-chai') {
         decl.remove();
         fileChanged = true;
@@ -411,9 +410,6 @@ export function applyCodemods(packagePath: string): CodemodResult {
         needsViImport = true;
         fileChanged = true;
         result.sinonMigrated++;
-      }
-      if (commentText && !sourceFile.getFullText().startsWith('/**')) {
-        sourceFile.insertText(0, commentText + '\n\n');
       }
     }
 
