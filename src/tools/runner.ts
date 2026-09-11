@@ -14,7 +14,7 @@ export interface TestRunResult {
 
 export function runVerification(
   packagePath: string,
-  target: 'vitest-browser' | 'vitest-node' | 'mocha-node' | 'karma-browser' = 'vitest-browser'
+  target: 'vitest-all' | 'vitest-browser' | 'vitest-node' | 'mocha-node' | 'karma-browser' = 'vitest-browser'
 ): Promise<TestRunResult> {
   return new Promise((resolve) => {
     if (!fs.existsSync(packagePath)) {
@@ -31,7 +31,10 @@ export function runVerification(
     let command: string;
     let args: string[];
 
-    if (target === 'vitest-browser') {
+    if (target === 'vitest-all') {
+      command = 'yarn';
+      args = ['vitest', 'run'];
+    } else if (target === 'vitest-browser') {
       command = 'yarn';
       args = ['vitest', 'run', '--project=browser'];
     } else if (target === 'vitest-node') {

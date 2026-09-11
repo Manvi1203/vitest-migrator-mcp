@@ -18,7 +18,7 @@ These instructions define the mandatory rules and migration lifecycle for all AI
     - `"test:all"`: `"vitest run"`
     - `"test:browser"`: `"vitest run --project=browser"`
     - `"test:browser:debug"`: `"vitest --project=browser --browser.headless=false"`
-    - `"test:node"`: `"vitest run --project=node"`
+    - `"test:node"`: `"vitest run --project=node"` *(Include ONLY if package has Node tests; omit for browser-only packages)*
     - `"test:ci"`: `"node ../../scripts/run_tests_in_ci.js -s test:all"`
 
 ---
@@ -57,7 +57,13 @@ These instructions define the mandatory rules and migration lifecycle for all AI
    - Node runtime internals and Vitest reporters require `process.env`. To test missing keys, `delete process.env[KEY]`. Native browser tests naturally run where `typeof process === 'undefined'`.
 7. **Migrate Legacy Sinon-Chai Mock Assertions to Native Vitest Matchers**:
    - Never leave legacy Sinon-Chai assertions (`expect(x).to.have.been.calledOnce`, `expect(x).to.have.been.calledWith(...)`, `expect(x).has.been.calledWith(...)`, `expect(x).to.have.been.called`, `expect(x).to.not.have.been.called`) in migrated test suites.
-   - Although Vitest provides a runtime compatibility shim, PR reviewers and automated bots (e.g. Gemini Code Assist) flag them as obsolete or non-idiomatic. Always convert them to native Vitest matchers: `toHaveBeenCalledTimes(1)`, `toHaveBeenCalledWith(...)`, `toHaveBeenCalled()`, and `not.toHaveBeenCalled()`.
+   - Always convert them to native Vitest matchers: `toHaveBeenCalledTimes(1)`, `toHaveBeenCalledWith(...)`, `toHaveBeenCalled()`, and `not.toHaveBeenCalled()`.
+8. **Migrate Legacy Chai Assertions to Native Vitest Matchers**:
+   - Never leave legacy Chai assertions in migrated test files (`.to.equal` -> `.toBe`, `.to.deep.equal` / `.to.eql` -> `.toEqual`, `.to.throw` -> `.toThrow`, `.to.be.undefined` -> `.toBeUndefined`, `.to.be.null` -> `.toBeNull`, `.to.exist` -> `.toBeDefined`).
+   - Vitest runs best with native matchers, avoiding runtime shim overhead and reviewer/bot comments.
+9. **Zero Redundant Inline Comments — Document Changes in PR Description Only**:
+   - Never add inline comments in test files or source code citing error messages (e.g. `// Guard process access to avoid Vitest browser error: "ReferenceError: process is not defined"`).
+   - Keep test files clean, minimal, and idiomatic. Document all error fixes and architectural rationale exclusively in the **PR Description**.
 
 ---
 

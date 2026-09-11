@@ -108,7 +108,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             target: {
               type: 'string',
-              enum: ['vitest-browser', 'vitest-node', 'mocha-node', 'karma-browser'],
+              enum: ['vitest-all', 'vitest-browser', 'vitest-node', 'mocha-node', 'karma-browser'],
               description: 'The test runner target to execute (default: vitest-browser)'
             }
           },

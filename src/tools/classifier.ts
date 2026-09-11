@@ -8,6 +8,8 @@ export interface PackageClassification {
   hasKarma: boolean;
   hasEmulator: boolean;
   hasIntegrationTests: boolean;
+  hasNodeTests: boolean;
+  isBrowserOnly: boolean;
   testFiles: string[];
   recommendations: string[];
 }
@@ -25,6 +27,7 @@ export function classifyPackage(packagePath: string): PackageClassification {
 
   const scripts = pkgJson.scripts || {};
   const scriptKeys = Object.keys(scripts);
+  const scriptValues = Object.values(scripts) as string[];
 
   const hasEmulator = scriptKeys.some(k => k.includes('emulator')) ||
     JSON.stringify(scripts).includes('emulator');
@@ -53,21 +56,46 @@ export function classifyPackage(packagePath: string): PackageClassification {
   }
 
   // Scan test files
-  const testDir = path.join(packagePath, 'test');
   const testFiles: string[] = [];
-  if (fs.existsSync(testDir)) {
-    function findTests(dir: string) {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'dist') {
-          findTests(fullPath);
-        } else if (entry.isFile() && (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.js'))) {
-          testFiles.push(path.relative(packagePath, fullPath));
-        }
+  function findTests(dir: string) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'dist') {
+        findTests(fullPath);
+      } else if (entry.isFile() && (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.js'))) {
+        testFiles.push(path.relative(packagePath, fullPath));
       }
     }
-    findTests(testDir);
+  }
+  findTests(path.join(packagePath, 'test'));
+  findTests(path.join(packagePath, 'src'));
+
+  const hasExplicitNodeScript =
+    scriptKeys.some(k => k === 'test:node' || k === 'test:node:unit') ||
+    scriptValues.some(v => typeof v === 'string' && (v.includes('mocha') || v.includes('ts-node ')));
+
+  const hasExplicitKarmaScript =
+    hasKarma ||
+    scriptKeys.some(k => k.includes('karma')) ||
+    scriptValues.some(v => typeof v === 'string' && v.includes('karma'));
+
+  const vitestConfigPath = path.join(packagePath, 'vitest.config.mjs');
+  const hasExistingVitestConfig = fs.existsSync(vitestConfigPath);
+  const vitestConfigContent = hasExistingVitestConfig
+    ? fs.readFileSync(vitestConfigPath, 'utf8')
+    : '';
+  const isVitestFilteredToBrowser = vitestConfigContent.includes("project.test?.name === 'browser'");
+
+  const hasNodeSpecificTestFiles = testFiles.some(f => f.includes('.node.test.') || f.includes('/node/'));
+
+  let hasNodeTests = hasExplicitNodeScript || hasNodeSpecificTestFiles;
+  let isBrowserOnly = isVitestFilteredToBrowser || (hasExplicitKarmaScript && !hasExplicitNodeScript && !hasNodeSpecificTestFiles);
+
+  if (isBrowserOnly) {
+    hasNodeTests = false;
+    recommendations.push('Browser-only test package; omit redundant test:node script and filter vitest config to browser project.');
   }
 
   return {
@@ -77,6 +105,8 @@ export function classifyPackage(packagePath: string): PackageClassification {
     hasKarma,
     hasEmulator,
     hasIntegrationTests,
+    hasNodeTests,
+    isBrowserOnly,
     testFiles,
     recommendations
   };

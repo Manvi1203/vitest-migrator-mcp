@@ -6,7 +6,7 @@
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Playwright Chromium browser runtime does not have Node.js Buffer in global scope.",
     "rule": "Guard 'instanceof Buffer' with 'typeof Buffer !== \"undefined\" && value instanceof Buffer' and use TextEncoder fallback for Buffer.from().",
-    "commentTemplate": "// In browser environments (Playwright Chromium under Vitest), Buffer is not globally defined.\n// Guard with typeof Buffer !== 'undefined' to prevent: ReferenceError: Buffer is not defined."
+    "commentTemplate": ""
   },
   {
     "id": "MOCHA_TIMEOUT_CHAINED",
@@ -15,7 +15,7 @@
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "In Vitest, it() returns void, whereas in Mocha it returns a Test object. Calling it('...', fn).timeout(ms) throws TypeError.",
     "rule": "Pass timeout as the 3rd argument in it('name', fn, ms) and guard this.timeout inside functions with 'if (this && typeof this.timeout === \"function\") this.timeout(ms)'.",
-    "commentTemplate": "// In Vitest it() returns void (Mocha returns Test object). Chaining .timeout() throws:\n// 'TypeError: Cannot read properties of undefined (reading 'timeout')'."
+    "commentTemplate": ""
   },
   {
     "id": "MOCHA_TEST_FULLTITLE",
@@ -24,7 +24,7 @@
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Vitest TestContext does not populate this.test like Mocha does.",
     "rule": "Replace this.test.fullTitle() with this?.test?.fullTitle() ?? '<fallback>'.",
-    "commentTemplate": "// Vitest TestContext does not populate this.test like Mocha.\n// Use this?.test?.fullTitle() ?? '<fallback>' to prevent TypeError."
+    "commentTemplate": ""
   },
   {
     "id": "CJS_REQUIRE_IN_TEST",
@@ -33,7 +33,7 @@
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Vitest browser executes in native ESM where require() is not defined.",
     "rule": "Convert 'const config = require(\"path/to/project.json\")' to 'import config from \"path/to/project.json\"'.",
-    "commentTemplate": "// Vitest browser runs in native ESM where require() is undefined.\n// Use ESM import to avoid ReferenceError: require is not defined."
+    "commentTemplate": ""
   },
   {
     "id": "FLOATING_PROMISE_UNHANDLED_REJECTION",
@@ -42,7 +42,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "Vitest registers an unhandledRejection listener on window. Fire-and-forget promises that intentionally fail (e.g. pingServer, enqueueAndForget) bubble to window unless caught.",
     "rule": "Add .catch(() => {}) to background/fire-and-forget promise chains.",
-    "commentTemplate": "// Catch network/simulated errors so offline servers don't trigger unhandled promise rejections in Vitest."
+    "commentTemplate": ""
   },
   {
     "id": "PROTOTYPE_AUGMENTATION_MISSING",
@@ -51,7 +51,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In Karma/Webpack, side-effect prototype extensions were eagerly evaluated. In Vitest ESM, prototype augmentations must be explicitly imported in test setup or test utilities.",
     "rule": "Explicitly import the implementation module (e.g. '../../src/api/pipeline_impl') in the test utility file.",
-    "commentTemplate": "// Explicitly import module to ensure prototype augmentations are loaded in isolated ESM mode."
+    "commentTemplate": ""
   },
   {
     "id": "ESM_BROWSER_MODULE_MOCKING",
@@ -60,7 +60,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In native ESM (Vite/Vitest browser mode), imported module namespaces are sealed/frozen objects. Both sinon.stub and vi.spyOn fail with 'Cannot redefine property' or 'ES Modules cannot be stubbed'. Module-level mocks must use vi.mock() with vi.hoisted() mock functions.",
     "rule": "Use 'const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() })); vi.mock(\"path\", async importOriginal => ({ ...(await importOriginal()), targetFn: (...args) => mockFn(...args) }));'.",
-    "commentTemplate": "// In native ESM (Vitest browser), module namespaces are sealed. Use vi.mock() + vi.hoisted() for module mocking."
+    "commentTemplate": ""
   },
   {
     "id": "CJS_MOCHA_NODE_COMPATIBILITY",
@@ -69,7 +69,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "When running 'yarn test:node' with ts-node in CommonJS mode, top-level 'import { vi } from \"vitest\"' compiles to require(\"vitest\"), which throws because Vitest does not support CJS require().",
     "rule": "Do not import { vi } from 'vitest' in test files. Instead: 1) Add src/types/vitest-globals.d.ts with ambient global vi and Chai matcher declarations; 2) Add test/setup.mocha.ts shim providing globalThis.vi fallback and chai matchers; 3) Set 'test:node' script with 'TS_NODE_FILES=true TS_NODE_CACHE=NO' and '--require test/setup.mocha.ts'.",
-    "commentTemplate": "// Avoid importing { vi } from 'vitest' directly in test files to preserve Mocha CommonJS test:node compatibility."
+    "commentTemplate": ""
   },
   {
     "id": "BROWSER_CLEAN_GLOBAL_ENVIRONMENT",
@@ -78,7 +78,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "Injecting artificial globalThis.process into the browser test runner pollutes global scope and causes packages that detect runtime environment via 'typeof process !== \"undefined\"' or 'process.env' to incorrectly assume they are running in Node.js.",
     "rule": "Do not inject synthetic process or process.env onto globalThis in browser test setups. Keep browser test runner global scope clean and native.",
-    "commentTemplate": "// Do not inject synthetic process onto globalThis in browser test runners to ensure environment detection remains accurate."
+    "commentTemplate": ""
   },
   {
     "id": "LOCKFILE_RESOLUTIONS_OVER_PACKAGE_JSON",
@@ -87,7 +87,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "Adding top-level 'resolutions' blocks to monorepo package.json clutters project configuration and introduces workspace-wide overrides. In Yarn 1.x workspaces, transient dependency conflicts (e.g. CommonJS string-width on Node 22) should be resolved and pinned directly in yarn.lock.",
     "rule": "Resolve transitive dependency version constraints directly in yarn.lock to keep root package.json minimal and clean.",
-    "commentTemplate": "// Pin transitive dependency versions directly in yarn.lock rather than polluting package.json."
+    "commentTemplate": ""
   },
   {
     "id": "LEARNED_1788284967669",
@@ -96,7 +96,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In Native ESM, imported module namespaces are sealed and immutable (Object.isFrozen === true), preventing sinon.stub from rewriting exported functions.",
     "rule": "Use global object property manipulation (or Object.defineProperty) instead of sinon.stub on imported ESM namespaces.",
-    "commentTemplate": "// Define throwing property or assign __FIREBASE_DEFAULTS__ on global instead of stubbing module exports\n// to avoid native ESM error: \"TypeError: ES Modules cannot be stubbed\""
+    "commentTemplate": ""
   },
   {
     "id": "GLOBAL_NAMESPACE_SHADOWING",
@@ -104,7 +104,8 @@
     "errorPattern": "import \\* as global from|global\\.getGlobal\\(\\)",
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Importing a module namespace as 'global' (e.g., 'import * as global from \"../src/global\"') shadows the Node.js global variable 'global', causing confusion and subtle bugs.",
-    "rule": "Never import a module namespace as 'global'. Use named imports like 'import { getGlobal } from \"../src/global\"'."
+    "rule": "Never import a module namespace as 'global'. Use named imports like 'import { getGlobal } from \"../src/global\"'.",
+    "commentTemplate": ""
   },
   {
     "id": "DANGEROUS_PROCESS_ENV_STUBBING",
@@ -112,7 +113,8 @@
     "errorPattern": "stub\\(process, ['\"]env['\"]\\)\\.value\\(undefined\\)",
     "fixStrategy": "AST_TRANSFORM",
     "rootCause": "Stubbing process.env to undefined in Node.js is risky because Node.js internals, Vitest reporters, and async hooks depend on process.env being an object. Vitest runs tests in both Node and native Browser Chromium; browser tests naturally cover the 'typeof process === \"undefined\"' branch without needing synthetic stubs in Node.",
-    "rule": "Do not stub process.env to undefined in Node tests. Rely on native browser test execution to verify environments where process is undefined, and delete individual environment keys if needed."
+    "rule": "Do not stub process.env to undefined in Node tests. Rely on native browser test execution to verify environments where process is undefined, and delete individual environment keys if needed.",
+    "commentTemplate": ""
   },
   {
     "id": "LEARNED_1788375896139",
@@ -184,7 +186,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In native browser (Playwright Chromium) and Vite ESM execution, namespace objects from import * as mod are non-configurable and sealed. sinon.stub(mod, 'prop') fails because exports are read-only getters.",
     "rule": "Hoist mock delegator with vi.hoisted(() => ({ mockTarget: { fn: (..._args: any[]) => {} } })), vi.mock(modulePath, () => delegator), and stub(mod, method) routing to sinonStub(mockTarget, method) so Sinon sandbox automatically tracks and restores it via standard sinon.restore().",
-    "commentTemplate": "// Module export stubbing in native ESM browser runner: use vi.hoisted mock delegator with sinonStub(mockTarget, method)"
+    "commentTemplate": ""
   },
   {
     "id": "GLOBAL_THIS_NORMALIZATION",
@@ -202,7 +204,7 @@
     "fixStrategy": "AST_CODEMOD",
     "rootCause": "In Vitest, arrow functions in tests lose Mocha this context, and early returns inside describe() blocks still execute hooks. this.skip() throws TypeError.",
     "rule": "Rewrite describe blocks with early returns to (condition ? describe.skip : describe) and this.skip() guards to (condition ? it : it.skip).",
-    "commentTemplate": "// eslint-disable-next-line no-restricted-properties"
+    "commentTemplate": ""
   },
   {
     "id": "LEARNED_1788993034954",
@@ -211,7 +213,7 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "In afterEach, calling clock.runAll() fast-forwards fake timers past polling timeout thresholds, triggering retry loops that leak unhandled promises and rogue state into subsequent tests.",
     "rule": "Do not call clock.runAll() in afterEach; use clock.restore() to safely discard pending timers. In tests with polling loops, advance only the necessary time and ensure loops conclude before test exits.",
-    "commentTemplate": "// Avoid clock.runAll() in afterEach when background polling loops are active to prevent timeout triggers and async leaks."
+    "commentTemplate": ""
   },
   {
     "id": "SINON_CHAI_MOCK_ASSERTIONS_MIGRATION",
@@ -220,6 +222,24 @@
     "fixStrategy": "AST_CODEMOD",
     "rootCause": "Migrating from Sinon to Vitest mocks leaves legacy Sinon-Chai assertions (.to.have.been.calledOnce, .has.been.calledWith, .to.have.been.called, .to.not.have.been.called). While Vitest provides a compatibility layer, PR reviewers and automated bots (e.g. Gemini Code Assist) flag them as obsolete or non-idiomatic.",
     "rule": "Convert legacy Sinon-Chai assertions to native Vitest mock assertions: .calledOnce -> toHaveBeenCalledTimes(1), .calledTwice -> toHaveBeenCalledTimes(2), .calledThrice -> toHaveBeenCalledTimes(3), .called -> toHaveBeenCalled(), .not.have.been.called -> not.toHaveBeenCalled(), and .calledWith(...) -> toHaveBeenCalledWith(...).",
+    "commentTemplate": ""
+  },
+  {
+    "id": "BROWSER_ONLY_NO_NODE_SCRIPT",
+    "name": "Omit test:node Script in Browser-Only Packages",
+    "errorPattern": "No project found with name \"node\"|test:node script should be removed",
+    "fixStrategy": "SCAFFOLD",
+    "rootCause": "Browser-only client packages (such as installations) only configure the browser test runner. Adding test:node produces a failing/obsolete npm script.",
+    "rule": "Filter vitest.config.mjs projects to browser only and do not scaffold test:node in package.json for browser-only packages.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "CHAI_ASSERTIONS_MIGRATION",
+    "name": "Migrate Legacy Chai Assertions to Native Vitest Matchers",
+    "errorPattern": "legacy Chai assertion syntax|to.equal|to.deep.equal|to.throw|to.be.undefined",
+    "fixStrategy": "AST_CODEMOD",
+    "rootCause": "Leaving legacy Chai assertions (.to.equal, .to.deep.equal, .to.throw) clutters code, risks runtime errors when Chai is uninstalled, and triggers bot/reviewer warnings.",
+    "rule": "Convert all Chai assertions to native Vitest matchers: .to.equal -> .toBe, .to.deep.equal -> .toEqual, .to.throw -> .toThrow, .to.be.undefined -> .toBeUndefined, .to.be.null -> .toBeNull.",
     "commentTemplate": ""
   }
 ]

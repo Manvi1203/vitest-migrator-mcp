@@ -1,4 +1,4 @@
-import { Project, SyntaxKind } from 'ts-morph';
+import { Node, Project, PropertyAccessExpression, SyntaxKind } from 'ts-morph';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -11,6 +11,7 @@ export interface CodemodResult {
   globalsNormalized: number;
   runnerSkipsFixed: number;
   sinonMigrated: number;
+  chaiMigrated: number;
   guardrailViolations: string[];
 }
 
@@ -24,6 +25,50 @@ export function isAllowedTestPath(filePath: string): boolean {
     filePath.includes('/testing/') ||
     filePath.endsWith('vitest.config.mjs');
   return isTest || isTestConfig;
+}
+
+export interface ExpectChainResult {
+  expectCall: Node;
+  target: string;
+  chain: string[];
+  isNegated: boolean;
+  isDeep: boolean;
+  isEventually: boolean;
+  lastWord: string;
+}
+
+export function unwrapExpectChain(node: Node): ExpectChainResult | null {
+  let curr: Node | undefined = node;
+  const chain: string[] = [];
+
+  while (curr && curr.getKind() === SyntaxKind.PropertyAccessExpression) {
+    const pa: PropertyAccessExpression = curr.asKind(SyntaxKind.PropertyAccessExpression)!;
+    chain.unshift(pa.getName());
+    curr = pa.getExpression();
+  }
+
+  if (curr && curr.getKind() === SyntaxKind.CallExpression) {
+    const call = curr.asKind(SyntaxKind.CallExpression)!;
+    const expr = call.getExpression();
+    if (expr.getText() === 'expect') {
+      const target = call.getArguments().map(a => a.getText()).join(', ');
+      const isNegated = chain.includes('not');
+      const isDeep = chain.includes('deep');
+      const isEventually = chain.includes('eventually');
+      const lastWord = chain[chain.length - 1];
+      return {
+        expectCall: call,
+        target,
+        chain,
+        isNegated,
+        isDeep,
+        isEventually,
+        lastWord
+      };
+    }
+  }
+
+  return null;
 }
 
 export function parseExpectChaiChain(
@@ -45,7 +90,9 @@ export function parseExpectChaiChain(
     'is',
     'be',
     'been',
-    'not'
+    'not',
+    'deep',
+    'eventually'
   ]);
   if (!words.every(w => allowedWords.has(w))) return null;
   const isNegated = words.includes('not');
@@ -73,6 +120,7 @@ export function applyCodemods(packagePath: string): CodemodResult {
     globalsNormalized: 0,
     runnerSkipsFixed: 0,
     sinonMigrated: 0,
+    chaiMigrated: 0,
     guardrailViolations: []
   };
 
@@ -508,80 +556,124 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
-    // 8f.1 Convert legacy Sinon-Chai mock assertions on expect(...) to native Vitest matchers
-    // 1. Method calls: .calledWith(...), .calledOnceWith(...), .lastCalledWith(...), .nthCalledWith(...)
-    const chaiMockCallExprs = sourceFile.getDescendantsOfKind(
+    // 8f.1 Convert Chai and Sinon-Chai mock assertions on expect(...) to native Vitest matchers
+    // 1. Method calls
+    const expectCallExprs = sourceFile.getDescendantsOfKind(
       SyntaxKind.CallExpression
     );
-    for (const call of chaiMockCallExprs) {
+    for (const call of expectCallExprs) {
       if (call.wasForgotten()) continue;
-      const expr = call.getExpression();
-      if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
-        const propAccess = expr.asKind(SyntaxKind.PropertyAccessExpression)!;
-        const methodName = propAccess.getName();
-        if (
-          [
-            'calledWith',
-            'calledOnceWith',
-            'lastCalledWith',
-            'nthCalledWith'
-          ].includes(methodName)
-        ) {
-          const callerChain = propAccess.getExpression().getText();
-          const parsed = parseExpectChaiChain(callerChain);
-          if (parsed) {
-            const argsText = call
-              .getArguments()
-              .map(a => a.getText())
-              .join(', ');
-            let newMethod = 'toHaveBeenCalledWith';
-            if (methodName === 'calledOnceWith')
-              newMethod = 'toHaveBeenCalledExactlyOnceWith';
-            if (methodName === 'lastCalledWith')
-              newMethod = 'toHaveBeenLastCalledWith';
-            if (methodName === 'nthCalledWith')
-              newMethod = 'toHaveBeenNthCalledWith';
-            const prefix = parsed.isNegated
-              ? `expect(${parsed.target}).not.`
-              : `expect(${parsed.target}).`;
-            call.replaceWithText(`${prefix}${newMethod}(${argsText})`);
-            fileChanged = true;
-            result.sinonMigrated++;
-          }
+      const res = unwrapExpectChain(call.getExpression());
+      if (!res) continue;
+      const { target, isNegated, isDeep, isEventually, lastWord } = res;
+      const argsText = call
+        .getArguments()
+        .map(a => a.getText())
+        .join(', ');
+
+      const prefix = isEventually
+        ? `expect(${target}).resolves.${isNegated ? 'not.' : ''}`
+        : `expect(${target}).${isNegated ? 'not.' : ''}`;
+
+      let replacement: string | null = null;
+      if (['equal', 'equals', 'eq'].includes(lastWord)) {
+        replacement = isDeep ? `${prefix}toEqual(${argsText})` : `${prefix}toBe(${argsText})`;
+      } else if (['eql', 'eqls'].includes(lastWord)) {
+        replacement = `${prefix}toEqual(${argsText})`;
+      } else if (['throw', 'throws'].includes(lastWord)) {
+        replacement = `${prefix}toThrow(${argsText})`;
+      } else if (['rejectedWith', 'rejected'].includes(lastWord)) {
+        replacement = `expect(${target}).rejects.${isNegated ? 'not.' : ''}toThrow(${argsText})`;
+      } else if (['instanceof', 'instanceOf'].includes(lastWord)) {
+        replacement = `${prefix}toBeInstanceOf(${argsText})`;
+      } else if (['include', 'includes', 'contain', 'contains'].includes(lastWord)) {
+        replacement = `${prefix}toContain(${argsText})`;
+      } else if (['length', 'lengthOf'].includes(lastWord)) {
+        replacement = `${prefix}toHaveLength(${argsText})`;
+      } else if (['above', 'greaterThan'].includes(lastWord)) {
+        replacement = `${prefix}toBeGreaterThan(${argsText})`;
+      } else if (['below', 'lessThan'].includes(lastWord)) {
+        replacement = `${prefix}toBeLessThan(${argsText})`;
+      } else if (['least', 'greaterThanOrEqual'].includes(lastWord)) {
+        replacement = `${prefix}toBeGreaterThanOrEqual(${argsText})`;
+      } else if (['most', 'lessThanOrEqual'].includes(lastWord)) {
+        replacement = `${prefix}toBeLessThanOrEqual(${argsText})`;
+      } else if (['closeTo'].includes(lastWord)) {
+        replacement = `${prefix}toBeCloseTo(${argsText})`;
+      } else if (['match', 'matches'].includes(lastWord)) {
+        replacement = `${prefix}toMatch(${argsText})`;
+      } else if (['property', 'haveOwnProperty'].includes(lastWord)) {
+        replacement = `${prefix}toHaveProperty(${argsText})`;
+      } else if (lastWord === 'calledWith') {
+        replacement = `${prefix}toHaveBeenCalledWith(${argsText})`;
+      } else if (lastWord === 'calledOnceWith') {
+        replacement = `${prefix}toHaveBeenCalledExactlyOnceWith(${argsText})`;
+      } else if (lastWord === 'lastCalledWith') {
+        replacement = `${prefix}toHaveBeenLastCalledWith(${argsText})`;
+      } else if (lastWord === 'nthCalledWith') {
+        replacement = `${prefix}toHaveBeenNthCalledWith(${argsText})`;
+      }
+
+      if (replacement) {
+        call.replaceWithText(replacement);
+        fileChanged = true;
+        result.chaiMigrated++;
+        if (lastWord.startsWith('called')) {
+          result.sinonMigrated++;
         }
       }
     }
 
-    // 2. Property access assertions: .calledOnce, .calledTwice, .calledThrice, .called
-    const chaiMockPropAccesses = sourceFile.getDescendantsOfKind(
+    // 2. Property access assertions: .undefined, .null, .true, .false, .exist, .empty, .calledOnce, etc.
+    const expectPropAccesses = sourceFile.getDescendantsOfKind(
       SyntaxKind.PropertyAccessExpression
     );
-    for (const prop of chaiMockPropAccesses) {
+    for (const prop of expectPropAccesses) {
       if (prop.wasForgotten()) continue;
-      const propName = prop.getName();
+      const parentKind = prop.getParent()?.getKind();
       if (
-        ['calledOnce', 'calledTwice', 'calledThrice', 'called'].includes(
-          propName
-        )
+        parentKind === SyntaxKind.PropertyAccessExpression ||
+        parentKind === SyntaxKind.CallExpression
       ) {
-        const callerChain = prop.getExpression().getText();
-        const parsed = parseExpectChaiChain(callerChain);
-        if (parsed) {
-          const prefix = parsed.isNegated
-            ? `expect(${parsed.target}).not.`
-            : `expect(${parsed.target}).`;
-          let replacement = '';
-          if (propName === 'calledOnce') {
-            replacement = `${prefix}toHaveBeenCalledTimes(1)`;
-          } else if (propName === 'calledTwice') {
-            replacement = `${prefix}toHaveBeenCalledTimes(2)`;
-          } else if (propName === 'calledThrice') {
-            replacement = `${prefix}toHaveBeenCalledTimes(3)`;
-          } else if (propName === 'called') {
-            replacement = `${prefix}toHaveBeenCalled()`;
-          }
-          prop.replaceWithText(replacement);
-          fileChanged = true;
+        continue;
+      }
+      const res = unwrapExpectChain(prop);
+      if (!res) continue;
+      const { target, isNegated, lastWord } = res;
+      const prefix = isNegated ? `expect(${target}).not.` : `expect(${target}).`;
+
+      let replacement: string | null = null;
+      if (lastWord === 'undefined') {
+        replacement = isNegated ? `expect(${target}).toBeDefined()` : `expect(${target}).toBeUndefined()`;
+      } else if (lastWord === 'null') {
+        replacement = `${prefix}toBeNull()`;
+      } else if (lastWord === 'true') {
+        replacement = `${prefix}toBe(true)`;
+      } else if (lastWord === 'false') {
+        replacement = `${prefix}toBe(false)`;
+      } else if (lastWord === 'exist' || lastWord === 'exists') {
+        replacement = isNegated ? `expect(${target}).toBeFalsy()` : `expect(${target}).toBeDefined()`;
+      } else if (lastWord === 'empty') {
+        replacement = `${prefix}toHaveLength(0)`;
+      } else if (lastWord === 'NaN') {
+        replacement = `${prefix}toBeNaN()`;
+      } else if (lastWord === 'ok') {
+        replacement = isNegated ? `expect(${target}).toBeFalsy()` : `expect(${target}).toBeTruthy()`;
+      } else if (lastWord === 'calledOnce') {
+        replacement = `${prefix}toHaveBeenCalledTimes(1)`;
+      } else if (lastWord === 'calledTwice') {
+        replacement = `${prefix}toHaveBeenCalledTimes(2)`;
+      } else if (lastWord === 'calledThrice') {
+        replacement = `${prefix}toHaveBeenCalledTimes(3)`;
+      } else if (lastWord === 'called') {
+        replacement = `${prefix}toHaveBeenCalled()`;
+      }
+
+      if (replacement) {
+        prop.replaceWithText(replacement);
+        fileChanged = true;
+        result.chaiMigrated++;
+        if (lastWord.startsWith('called')) {
           result.sinonMigrated++;
         }
       }
@@ -605,7 +697,7 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
-    // 8h. Convert all Chai imports (expect, assert, chai, use) to Vitest imports
+    // 8h. Convert all Chai imports (expect, assert, chai, use) to Vitest imports and clean unused
     const chaiImports = sourceFile.getImportDeclarations().filter(d => {
       return d.getModuleSpecifierValue() === 'chai';
     });
@@ -614,49 +706,36 @@ export function applyCodemods(packagePath: string): CodemodResult {
       const defaultImport = chaiDecl.getDefaultImport();
       const namedImports = chaiDecl.getNamedImports();
 
+      const hasChaiUsage = sourceFile.getText().includes('chai.');
+      const hasUseUsage = sourceFile
+        .getDescendantsOfKind(SyntaxKind.CallExpression)
+        .some(c => c.getExpression().getText() === 'use' || c.getExpression().getText() === 'chai.use');
+
       if (defaultImport && defaultImport.getText() === 'chai') {
+        if (!hasChaiUsage) {
+          chaiDecl.remove();
+          fileChanged = true;
+          continue;
+        }
         chaiDecl.removeDefaultImport();
         chaiDecl.addNamedImport('chai');
         chaiDecl.setModuleSpecifier('vitest');
         fileChanged = true;
       } else if (namedImports.length > 0) {
-        const useSpec = namedImports.find(ni => ni.getName() === 'use');
-        if (useSpec) {
-          useSpec.setName('chai');
-          const useCalls = sourceFile
-            .getDescendantsOfKind(SyntaxKind.CallExpression)
-            .filter(c => c.getExpression().getText() === 'use');
-          for (const uc of useCalls) {
-            if (!uc.wasForgotten()) {
-              uc.getExpression().replaceWithText('chai.use');
-            }
-          }
-        }
-        chaiDecl.setModuleSpecifier('vitest');
-        fileChanged = true;
-      }
-    }
+        const remainingNamed = namedImports.filter(ni => {
+          const name = ni.getName();
+          if (name === 'use' && !hasUseUsage) return false;
+          if (name === 'chai' && !hasChaiUsage) return false;
+          return true;
+        });
 
-    // 8i. In test/setup.ts, register chaiAsPromised on Vitest chai if present
-    if (filePath.endsWith('setup.ts')) {
-      const content = sourceFile.getText();
-      if (content.includes('chaiAsPromised') && !content.includes('chai.use(chaiAsPromised)')) {
-        sourceFile.addStatements('chai.use(chaiAsPromised);');
-        needsViImport = true;
-        const vitestImport = sourceFile
-          .getImportDeclarations()
-          .find(d => d.getModuleSpecifierValue() === 'vitest');
-        if (vitestImport) {
-          if (!vitestImport.getNamedImports().some(ni => ni.getName() === 'chai')) {
-            vitestImport.addNamedImport('chai');
-          }
+        if (remainingNamed.length === 0) {
+          chaiDecl.remove();
+          fileChanged = true;
         } else {
-          sourceFile.addImportDeclaration({
-            namedImports: ['chai'],
-            moduleSpecifier: 'vitest'
-          });
+          chaiDecl.setModuleSpecifier('vitest');
+          fileChanged = true;
         }
-        fileChanged = true;
       }
     }
 
