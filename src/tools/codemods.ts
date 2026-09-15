@@ -413,11 +413,16 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
-    // 8b. Remove chai.use(sinonChai) or use(sinonChai)
+    // 8b. Remove chai.use(sinonChai) or use(sinonChai) or use(chaiAsPromised)
     const chaiCalls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
     for (const call of chaiCalls) {
       const text = call.getText();
-      if (text === 'use(sinonChai)' || text === 'chai.use(sinonChai)') {
+      if (
+        text === 'use(sinonChai)' ||
+        text === 'chai.use(sinonChai)' ||
+        text === 'use(chaiAsPromised)' ||
+        text === 'chai.use(chaiAsPromised)'
+      ) {
         const stmt = call.getFirstAncestorByKind(
           SyntaxKind.ExpressionStatement
         );
@@ -880,6 +885,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
         replacement = `${prefix}toHaveBeenCalledTimes(3)`;
       } else if (lastWord === 'called') {
         replacement = `${prefix}toHaveBeenCalled()`;
+      } else if (lastWord === 'fulfilled') {
+        replacement = `expect(${target}).resolves.not.toThrow()`;
       }
 
       if (replacement) {
@@ -912,17 +919,37 @@ export function applyCodemods(packagePath: string): CodemodResult {
 
     // 8h. Convert all Chai imports (expect, assert, chai, use) to Vitest imports and clean unused
     const chaiImports = sourceFile.getImportDeclarations().filter(d => {
-      return d.getModuleSpecifierValue() === 'chai';
+      return (
+        d.getModuleSpecifierValue() === 'chai' ||
+        d.getModuleSpecifierValue() === 'chai-as-promised'
+      );
     });
     for (const chaiDecl of chaiImports) {
       if (chaiDecl.wasForgotten()) continue;
+      if (chaiDecl.getModuleSpecifierValue() === 'chai-as-promised') {
+        chaiDecl.remove();
+        fileChanged = true;
+        continue;
+      }
       const defaultImport = chaiDecl.getDefaultImport();
       const namedImports = chaiDecl.getNamedImports();
 
       const hasChaiUsage = sourceFile.getText().includes('chai.');
       const hasUseUsage = sourceFile
         .getDescendantsOfKind(SyntaxKind.CallExpression)
-        .some(c => c.getExpression().getText() === 'use' || c.getExpression().getText() === 'chai.use');
+        .some(c => {
+          const t = c.getExpression().getText();
+          if (t !== 'use' && t !== 'chai.use') return false;
+          const arg = c.getArguments()[0]?.getText();
+          return arg !== 'sinonChai' && arg !== 'chaiAsPromised';
+        });
+      const hasAssertUsage = sourceFile
+        .getDescendantsOfKind(SyntaxKind.Identifier)
+        .some(
+          id =>
+            id.getText() === 'assert' &&
+            id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression
+        );
 
       if (defaultImport && defaultImport.getText() === 'chai') {
         if (!hasChaiUsage) {
@@ -934,9 +961,6 @@ export function applyCodemods(packagePath: string): CodemodResult {
         chaiDecl.addNamedImport('chai');
         chaiDecl.setModuleSpecifier('vitest');
         fileChanged = true;
-        const hasAssertUsage = sourceFile
-          .getDescendantsOfKind(SyntaxKind.Identifier)
-          .some(id => id.getText() === 'assert' && id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression);
         const remainingNamed = namedImports.filter(ni => {
           const name = ni.getName();
           if (name === 'use' && !hasUseUsage) return false;
@@ -953,10 +977,27 @@ export function applyCodemods(packagePath: string): CodemodResult {
           chaiDecl.setModuleSpecifier('vitest');
           fileChanged = true;
         }
+      } else {
+        // Named imports only: e.g. import { expect, use } from 'chai'
+        for (const ni of namedImports) {
+          const name = ni.getName();
+          if (
+            name === 'expect' ||
+            (name === 'use' && !hasUseUsage) ||
+            (name === 'assert' && !hasAssertUsage)
+          ) {
+            ni.remove();
+            fileChanged = true;
+          }
+        }
+        if (chaiDecl.getNamedImports().length === 0) {
+          chaiDecl.remove();
+          fileChanged = true;
+        }
       }
     }
 
-    // 8i. Clean unused assert / expect imports from 'vitest'
+    // 8i. Clean unused assert / expect / vi imports from 'vitest'
     const vitestImports = sourceFile.getImportDeclarations().filter(d => {
       return d.getModuleSpecifierValue() === 'vitest';
     });
@@ -968,12 +1009,16 @@ export function applyCodemods(packagePath: string): CodemodResult {
         if (name === 'assert') {
           const hasAssert = sourceFile
             .getDescendantsOfKind(SyntaxKind.Identifier)
-            .some(id => id.getText() === 'assert' && id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression);
+            .some(
+              id =>
+                id.getText() === 'assert' &&
+                id.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression
+            );
           if (!hasAssert) {
             ni.remove();
             fileChanged = true;
           }
-        } else if (name === 'expect') {
+        } else if (name === 'expect' || name === 'vi') {
           ni.remove();
           fileChanged = true;
         }
@@ -984,14 +1029,12 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
-    // 8j. Inject required Vitest imports
-    if (needsViImport || needsMockInstanceImport) {
+    // 8j. Inject required Vitest imports (type-only for MockInstance, vi is global)
+    if (needsMockInstanceImport) {
       const existingVitestImport = sourceFile
         .getImportDeclarations()
         .find(d => d.getModuleSpecifierValue() === 'vitest');
-      const importsToAdd: string[] = [];
-      if (needsViImport) importsToAdd.push('vi');
-      if (needsMockInstanceImport) importsToAdd.push('MockInstance');
+      const importsToAdd: string[] = ['MockInstance'];
 
       if (existingVitestImport) {
         for (const imp of importsToAdd) {
@@ -1007,7 +1050,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
       } else {
         sourceFile.addImportDeclaration({
           namedImports: importsToAdd,
-          moduleSpecifier: 'vitest'
+          moduleSpecifier: 'vitest',
+          isTypeOnly: true
         });
         fileChanged = true;
       }

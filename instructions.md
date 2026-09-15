@@ -14,11 +14,16 @@ These instructions define the mandatory rules and migration lifecycle for all AI
     export default createBaseConfig(import.meta.url);
     ```
   - Standardize `package.json` test scripts:
-    - `"test"`: `"run-p --npm-path npm lint test:all"`
+    - `"test"`: `"run-p --npm-path npm lint [type-check ]test:all"` *(Preserve `type-check` if originally present)*
     - `"test:all"`: `"vitest run"`
-    - `"test:browser"`: `"vitest run --project=browser"`
-    - `"test:browser:debug"`: `"vitest --project=browser --browser.headless=false"`
-    - `"test:node"`: `"vitest run --project=node"` *(Include ONLY if package has Node tests; omit for browser-only packages)*
+    - **For browser-only packages**:
+      - `"test:browser"`: `"vitest run"` *(Omit redundant `--project=browser` since only one project exists)*
+      - `"test:browser:debug"`: `"vitest --browser.headless=false"`
+      - Omit `"test:node"`
+    - **For multi-project packages (Node + Browser)**:
+      - `"test:browser"`: `"vitest run --project=browser"`
+      - `"test:browser:debug"`: `"vitest --project=browser --browser.headless=false"`
+      - `"test:node"`: `"vitest run --project=node"`
     - `"test:ci"`: `"node ../../scripts/run_tests_in_ci.js -s test:all"`
 
 ---
@@ -64,6 +69,17 @@ These instructions define the mandatory rules and migration lifecycle for all AI
 9. **Zero Redundant Inline Comments — Document Changes in PR Description Only**:
    - Never add inline comments in test files or source code citing error messages (e.g. `// Guard process access to avoid Vitest browser error: "ReferenceError: process is not defined"`).
    - Keep test files clean, minimal, and idiomatic. Document all error fixes and architectural rationale exclusively in the **PR Description**.
+10. **Concise Spy Layer Comments for `vi.hoisted`**:
+    - When wrapping ESM module exports with `vi.hoisted` + `vi.mock`, add a single-line explanation:
+      `// This inserts <mockName> as a spy layer on methods coming from ./<module>`
+11. **Assert Error Messages Directly (Do Not Mutate `error.name`)**:
+    - Use standard `new Error('msg')` and assert `expect((e as Error).message).toBe('msg')` or `expect(promise).rejects.toThrow('msg')`. Do not set `customErr.name = 'foo'`.
+12. **No Node 20 Compatibility Shims**:
+    - Do not add Node 20 fallbacks (e.g. `if (typeof WebSocket === 'undefined')`) in test files. CI and target environments run Node >= 22.
+13. **Match Test Titles to Matchers**:
+    - When asserting error messages/reasons with `toThrow(...)`, remove references to specific error types like `DOMException` from test titles unless explicitly asserting the error class.
+14. **Mandatory Changeset for Any `src/` Edits**:
+    - If a migration PR touches ANY file in `src/` (including type re-exports `export type { ... }`), always generate a patch changeset in `.changeset/<package>-vitest-migration.md`.
 
 ---
 

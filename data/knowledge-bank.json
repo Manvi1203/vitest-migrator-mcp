@@ -250,5 +250,86 @@
     "rootCause": "Sinon stubs use resolves/returns/callsFake/rejects while Vitest MockInstance uses mockResolvedValue/mockReturnValue/mockImplementation/mockRejectedValue.",
     "rule": "Transform Sinon stub methods to Vitest mock methods and convert calledOnce assertions to toHaveBeenCalledTimes(1).",
     "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789091148454",
+    "name": "ESM Export Mocking via vi.hoisted and vi.mock",
+    "errorPattern": "undefined",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Vitest browser mode running native ESM, imported module namespaces are sealed. vi.spyOn() on namespace exports fails with Cannot spy on export. vi.mock with vi.hoisted must be used. When passthrough is needed, unmocked functions can be captured and preserved.",
+    "rule": "undefined",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789160401334",
+    "name": "Stub Console and Native Methods with mockImplementation",
+    "errorPattern": "console noise in test log|vi.spyOn.*without mockImplementation|calls through to original method",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Vitest, vi.spyOn() calls through to the original implementation by default. When spying on console/logger methods or native browser/node methods where code should not run, this causes unwanted test log noise (e.g., console.warn/error output) and unnecessary computation. Chaining .mockImplementation(() => {}) or .mockReturnValue(...) is required to stub out the method.",
+    "rule": "When spying on console, logger, or native browser/Node methods where the real implementation should not run (e.g. to silence test log noise or save unnecessary computation), chain .mockImplementation(() => {}) or .mockReturnValue(...) to turn the spy into a stub: vi.spyOn(console, 'info').mockImplementation(() => {}). Avoid bare vi.spyOn() for these methods as it calls through by default.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789404295316",
+    "name": "Firebase App Deleted Heartbeat IndexedDB Race",
+    "errorPattern": "Firebase: Firebase App named '.*' already deleted \\(app/app-deleted\\)|app-deleted",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "When tests call initializeApp() and deleteApp(app), the default HeartbeatService initialized with the app asynchronously reads/writes to IndexedDB via HeartbeatStorageImpl. If deleteApp(app) finishes and marks app.isDeleted = true while the heartbeat storage promise is still executing, computeKey(app) accesses app.name or app.options, which throws AppError.APP_DELETED and logs a warning via @firebase/app logger.",
+    "rule": "In test suites that call initializeApp() and deleteApp(app), overwrite the 'heartbeat' component with a dummy component using _addOrOverwriteComponent(app, new Component('heartbeat', () => ({ triggerHeartbeat: () => {}, getHeartbeatsHeader: () => Promise.resolve('') } as any), ComponentType.PUBLIC)) in beforeEach to prevent background IndexedDB operations from executing against a deleted app.",
+    "commentTemplate": "// Overwrite heartbeat component to avoid background IndexedDB access on deleted app\n_addOrOverwriteComponent(\n  app,\n  new Component(\n    'heartbeat',\n    () =>\n      ({\n        triggerHeartbeat: () => {},\n        getHeartbeatsHeader: () => Promise.resolve('')\n      }) as any,\n    ComponentType.PUBLIC\n  )\n);"
+  },
+  {
+    "id": "LEARNED_1789421137713",
+    "name": "Prevent Importing Test Suite Files for Helper Functions",
+    "errorPattern": "FirebaseStorage-Exp-can-pause-uploads-without-an-error|can pause uploads without an error",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Importing helper functions (createApp, createStorage) directly from a test file (e.g. integration.test.ts) causes Vitest to execute the entire imported test suite as side-effects inside other test files.",
+    "rule": "Extract shared test helpers (createApp, createStorage, mock tokens) into dedicated testshared.ts files rather than exporting them from files containing describe() blocks.",
+    "commentTemplate": "// Extract shared test helpers into a separate testshared.ts to avoid running test suites on import"
+  },
+  {
+    "id": "ESM_SPY_LAYER_COMMENT",
+    "name": "Concise Single-Line Comment for vi.hoisted Module Spy Layers",
+    "errorPattern": "vi\\.hoisted.*vi\\.mock|redundant at first glance|spy layer on methods",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Wrapping ESM module exports in vi.hoisted and forwarding them in vi.mock can appear redundant to reviewers without context. A concise explanation avoids confusion while keeping test files clean.",
+    "rule": "When creating a spy layer on module exports using vi.hoisted and vi.mock, add a standardized single-line comment: // This inserts <mockName> as a spy layer on methods coming from ./<module>. Do not write lengthy multi-line explanations.",
+    "commentTemplate": "// This inserts mockGenerateContent as a spy layer on methods coming from ./generate-content.ts"
+  },
+  {
+    "id": "ERROR_ASSERTION_MESSAGE_OVER_NAME",
+    "name": "Assert Error Message Instead of Mutating Error Name",
+    "errorPattern": "customErr\\.name|expect\\(.*\\.name\\)\\.to\\.equal|error\\.name instead of error\\.message",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In legacy Sinon tests, custom error names were sometimes set (e.g. customErr.name = 'foo') to assert error identity. In Vitest, standard Error instances should be used and .message asserted, avoiding extra lines of custom error mutation.",
+    "rule": "When mocking rejected promises or asserting caught errors, use standard new Error('msg') and assert expect((e as Error).message).toBe('msg') or expect(promise).rejects.toThrow('msg'). Do not assign custom .name to generic Error objects.",
+    "commentTemplate": "expect((e as Error).message).toBe('foo');"
+  },
+  {
+    "id": "NODE_22_NATIVE_NO_LEGACY_FALLBACKS",
+    "name": "No Node 20 Polyfills or Fallbacks in Test Suites",
+    "errorPattern": "typeof.*WebSocket === 'undefined'|typeof WebSocket === 'undefined'|safe to not accommodate Node 20",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "CI runs on Node 22 and upcoming major SDK releases require Node 24. Adding Node 20 compatibility shims (e.g., checking if global WebSocket is undefined and providing dummy classes) clutters tests and requires manual cleanup in afterEach.",
+    "rule": "Do not add synthetic fallbacks or polyfills for Node 20 in test suites. Rely on native Node >= 22 capabilities (like global WebSocket). Tests should target Node 22+ directly.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "TEST_TITLE_MATCHER_CONSISTENCY",
+    "name": "Keep Test Titles Consistent with Error Assertions",
+    "errorPattern": "should throw DOMException|DOMException.*rejects\\.toThrow",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "When migrating Chai/Sinon error assertions to Vitest .rejects.toThrow(reason), leaving references to specific error types like DOMException in test titles is misleading if the assertion only verifies the error message/reason.",
+    "rule": "Update test titles to remove specific error class names (e.g., change 'should throw DOMException if...' to 'should throw if...') when the test only asserts the thrown error message or abort reason.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "MANDATORY_CHANGESET_FOR_SRC_CHANGES",
+    "name": "Mandatory Changeset for Any Production Code or Typings Changes",
+    "errorPattern": "need to make a changeset to mark the code change|changes the production bundle",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Any modifications to files under src/ (including type re-exports like 'export type { ... }' or bundle adjustments) affect the generated production bundle or public typings. A changeset is required for version tracking and release changelogs.",
+    "rule": "If a migration PR makes ANY changes to files under src/ (even type-only re-exports or bundle adjustments), ALWAYS create a patch changeset in .changeset/<package>-vitest-migration.md.",
+    "commentTemplate": ""
   }
 ]

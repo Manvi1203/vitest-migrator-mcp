@@ -150,14 +150,20 @@ export default config;
 
     const hasSetup = pkgJson.scripts['testsetup'] ? 'yarn testsetup && ' : '';
 
+    const hasTypeCheck = (pkgJson.scripts['type-check'] || (pkgJson.scripts['test'] && pkgJson.scripts['test'].includes('type-check')))
+      ? 'type-check '
+      : '';
+
     // Add unified and project Vitest scripts
-    pkgJson.scripts['test'] = 'run-p --npm-path npm lint test:all';
+    pkgJson.scripts['test'] = `run-p --npm-path npm lint ${hasTypeCheck}test:all`;
     pkgJson.scripts['test:all'] = `${hasSetup}vitest run`;
-    pkgJson.scripts['test:browser'] = `${hasSetup}vitest run --project=browser`;
-    pkgJson.scripts['test:browser:debug'] = `${hasSetup}vitest --project=browser --browser.headless=false`;
     if (isBrowserOnly) {
+      pkgJson.scripts['test:browser'] = `${hasSetup}vitest run`;
+      pkgJson.scripts['test:browser:debug'] = `${hasSetup}vitest --browser.headless=false`;
       delete pkgJson.scripts['test:node'];
     } else {
+      pkgJson.scripts['test:browser'] = `${hasSetup}vitest run --project=browser`;
+      pkgJson.scripts['test:browser:debug'] = `${hasSetup}vitest --project=browser --browser.headless=false`;
       pkgJson.scripts['test:node'] = 'vitest run --project=node';
     }
     pkgJson.scripts['test:ci'] = 'node ../../scripts/run_tests_in_ci.js -s test:all';
