@@ -150,16 +150,20 @@ export function applyCodemods(packagePath: string): CodemodResult {
         return text === 'expect' || text.startsWith('expect(');
       }).length;
 
-    // 1. Fix Mocha this.test.fullTitle() in test files
+    // 1. Fix Mocha this.test.fullTitle() and this.test!.fullTitle() in test files
     const fullTitleCalls = sourceFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
       .filter(call => {
-        const text = call.getExpression().getText();
-        return text === 'this.test.fullTitle';
+        const text = call.getExpression().getText().replace(/\s+/g, '');
+        return (
+          text === 'this.test.fullTitle' ||
+          text === 'this.test!.fullTitle' ||
+          text === 'this.test?.fullTitle'
+        );
       });
 
     for (const call of fullTitleCalls) {
-      call.replaceWithText(`(this?.test?.fullTitle() ?? 'test-transaction')`);
+      call.replaceWithText(`(expect.getState().currentTestName ?? 'test-transaction')`);
       result.fullTitlesFixed++;
       fileChanged = true;
     }
@@ -326,12 +330,10 @@ export function applyCodemods(packagePath: string): CodemodResult {
                 .some(s => s.getKind() === SyntaxKind.ReturnStatement));
           if (isReturn) {
             const condText = ifStmt.getExpression().getText();
-            ifStmt.remove();
             describeCall
               .getExpression()
-              .replaceWithText(
-                `// eslint-disable-next-line no-restricted-properties\n(${condText} ? describe.skip : describe)`
-              );
+              .replaceWithText(`describe.skipIf(${condText})`);
+            ifStmt.remove();
             result.runnerSkipsFixed++;
             fileChanged = true;
           }
@@ -361,22 +363,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
           const hasThisSkip = ifStmt.getText().includes('this.skip()');
           if (hasThisSkip) {
             const condText = ifStmt.getExpression().getText();
-            let runnerExpr = '';
-            if (condText.startsWith('!')) {
-              const positiveCond = condText
-                .slice(1)
-                .trim()
-                .replace(/^\((.*)\)$/, '$1');
-              runnerExpr = `(${positiveCond} ? it : it.skip)`;
-            } else {
-              runnerExpr = `(${condText} ? it.skip : it)`;
-            }
+            itCall.getExpression().replaceWithText(`it.skipIf(${condText})`);
             ifStmt.remove();
-            itCall
-              .getExpression()
-              .replaceWithText(
-                `// eslint-disable-next-line no-restricted-properties\n${runnerExpr}`
-              );
             result.runnerSkipsFixed++;
             fileChanged = true;
           }
@@ -527,6 +515,11 @@ export function applyCodemods(packagePath: string): CodemodResult {
         if (propAccess.wasForgotten()) continue;
         const methodName = propAccess.getName();
         const objText = propAccess.getExpression().getText();
+        if (objText === 'sinon.fake' || objText === 'fake') {
+          propAccess.getExpression().replaceWithText('vi.fn()');
+          needsViImport = true;
+          fileChanged = true;
+        }
         if (methodName === 'resetHistory') {
           propAccess.getNameNode().replaceWithText('mockClear');
           fileChanged = true;
@@ -555,7 +548,12 @@ export function applyCodemods(packagePath: string): CodemodResult {
           propAccess.getNameNode().replaceWithText('mockImplementation');
           fileChanged = true;
           result.sinonMigrated++;
-        } else if (methodName === 'reset' || methodName === 'resetBehavior') {
+        } else if (
+          (methodName === 'reset' &&
+            sinonImports.length > 0 &&
+            /spy|stub|fake|mock/i.test(objText)) ||
+          methodName === 'resetBehavior'
+        ) {
           propAccess.getNameNode().replaceWithText('mockReset');
           fileChanged = true;
           result.sinonMigrated++;
@@ -781,9 +779,15 @@ export function applyCodemods(packagePath: string): CodemodResult {
     );
     for (const call of expectCallExprs) {
       if (call.wasForgotten()) continue;
+      if (call.getParent()?.getKind() === SyntaxKind.PropertyAccessExpression) {
+        continue;
+      }
       const res = unwrapExpectChain(call.getExpression());
       if (!res) continue;
-      const { target, isNegated, isDeep, isEventually, lastWord } = res;
+      const { target, chain, isNegated, isDeep, isEventually, lastWord } = res;
+      if (!['to', 'not', 'has', 'have', 'eventually'].includes(chain[0])) {
+        continue;
+      }
       const argsText = call
         .getArguments()
         .map(a => a.getText())
@@ -808,16 +812,60 @@ export function applyCodemods(packagePath: string): CodemodResult {
         replacement = `${prefix}toContain(${argsText})`;
       } else if (['length', 'lengthOf'].includes(lastWord)) {
         replacement = `${prefix}toHaveLength(${argsText})`;
-      } else if (['above', 'greaterThan'].includes(lastWord)) {
+      } else if (['above', 'greaterThan', 'gt'].includes(lastWord)) {
         replacement = `${prefix}toBeGreaterThan(${argsText})`;
-      } else if (['below', 'lessThan'].includes(lastWord)) {
+      } else if (['below', 'lessThan', 'lt'].includes(lastWord)) {
         replacement = `${prefix}toBeLessThan(${argsText})`;
-      } else if (['least', 'greaterThanOrEqual'].includes(lastWord)) {
+      } else if (['least', 'greaterThanOrEqual', 'gte'].includes(lastWord)) {
         replacement = `${prefix}toBeGreaterThanOrEqual(${argsText})`;
-      } else if (['most', 'lessThanOrEqual'].includes(lastWord)) {
+      } else if (['most', 'lessThanOrEqual', 'lte'].includes(lastWord)) {
         replacement = `${prefix}toBeLessThanOrEqual(${argsText})`;
-      } else if (['closeTo'].includes(lastWord)) {
-        replacement = `${prefix}toBeCloseTo(${argsText})`;
+      } else if (lastWord === 'closeTo' || lastWord === 'approximately') {
+        const callArgs = call.getArguments();
+        const expectArg0 =
+          res.expectCall
+            .asKind(SyntaxKind.CallExpression)
+            ?.getArguments()[0]
+            ?.getText() ?? target;
+        if (callArgs.length >= 2) {
+          const deltaText = callArgs[1].getText().trim();
+          const deltaNum = Number(deltaText);
+          const log10 =
+            !Number.isNaN(deltaNum) && deltaNum > 0 && deltaNum < 1
+              ? Math.round(-Math.log10(deltaNum) * 1e6) / 1e6
+              : NaN;
+          if (
+            Number.isInteger(log10) &&
+            log10 >= 1 &&
+            log10 <= 20
+          ) {
+            replacement = `${prefix}toBeCloseTo(${callArgs[0].getText()}, ${log10})`;
+          } else {
+            replacement = `expect(Math.abs((${expectArg0}) - (${callArgs[0].getText()}))).${isNegated ? 'not.' : ''}toBeLessThanOrEqual(${deltaText})`;
+          }
+        } else {
+          replacement = `${prefix}toBeCloseTo(${argsText})`;
+        }
+      } else if (lastWord === 'members') {
+        const expectArg0 =
+          res.expectCall
+            .asKind(SyntaxKind.CallExpression)
+            ?.getArguments()[0]
+            ?.getText() ?? target;
+        const memberPrefix = isEventually
+          ? `expect(${expectArg0}).resolves.${isNegated ? 'not.' : ''}`
+          : `expect(${expectArg0}).${isNegated ? 'not.' : ''}`;
+        replacement = chain.includes('ordered')
+          ? `${memberPrefix}toEqual(${argsText})`
+          : `${memberPrefix}toEqual(expect.arrayContaining(${argsText}))`;
+      } else if (lastWord === 'oneOf') {
+        replacement = `expect(${argsText}).${isNegated ? 'not.' : ''}toContain(${target})`;
+      } else if (['a', 'an'].includes(lastWord)) {
+        if (argsText === "'array'" || argsText === '"array"') {
+          replacement = `expect(Array.isArray(${target})).${isNegated ? 'not.' : ''}toBe(true)`;
+        } else {
+          replacement = `expect(typeof (${target})).${isNegated ? 'not.' : ''}toBe(${argsText})`;
+        }
       } else if (['match', 'matches'].includes(lastWord)) {
         replacement = `${prefix}toMatch(${argsText})`;
       } else if (['property', 'haveOwnProperty'].includes(lastWord)) {
@@ -887,6 +935,8 @@ export function applyCodemods(packagePath: string): CodemodResult {
         replacement = `${prefix}toHaveBeenCalled()`;
       } else if (lastWord === 'fulfilled') {
         replacement = `expect(${target}).resolves.not.toThrow()`;
+      } else if (lastWord === 'rejected') {
+        replacement = `expect(${target}).rejects.${isNegated ? 'not.' : ''}toThrow()`;
       }
 
       if (replacement) {
@@ -899,19 +949,30 @@ export function applyCodemods(packagePath: string): CodemodResult {
       }
     }
 
-    // 8g. Convert .called property on spies: x.called -> (x.mock.calls.length > 0)
+    // 8g. Convert .called / .calledOnce / .callCount property on spies
     // Avoid touching expect(x).to.have.been.called or expect(x).to.not.have.been.called assertions
     const propAccesses = sourceFile.getDescendantsOfKind(
       SyntaxKind.PropertyAccessExpression
     );
     for (const prop of propAccesses) {
       if (prop.wasForgotten()) continue;
-      if (prop.getName() === 'called') {
+      const propName = prop.getName();
+      if (
+        propName === 'called' ||
+        propName === 'calledOnce' ||
+        propName === 'callCount'
+      ) {
         const target = prop.getExpression().getText();
         if (target.includes('expect(') || target.endsWith('.been')) {
           continue;
         }
-        prop.replaceWithText(`(${target}.mock.calls.length > 0)`);
+        if (propName === 'called') {
+          prop.replaceWithText(`(${target}.mock.calls.length > 0)`);
+        } else if (propName === 'calledOnce') {
+          prop.replaceWithText(`(${target}.mock.calls.length === 1)`);
+        } else if (propName === 'callCount') {
+          prop.replaceWithText(`${target}.mock.calls.length`);
+        }
         fileChanged = true;
         result.sinonMigrated++;
       }
@@ -1018,7 +1079,10 @@ export function applyCodemods(packagePath: string): CodemodResult {
             ni.remove();
             fileChanged = true;
           }
-        } else if (name === 'expect' || name === 'vi') {
+        } else if (
+          name === 'expect' ||
+          (name === 'vi' && !filePath.endsWith('/setup.ts'))
+        ) {
           ni.remove();
           fileChanged = true;
         }

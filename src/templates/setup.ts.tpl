@@ -15,4 +15,10 @@
  * limitations under the License.
  */
 
-// Package-specific test setup for Vitest
+import { afterEach, vi } from 'vitest';
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+

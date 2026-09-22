@@ -55,11 +55,11 @@
   },
   {
     "id": "ESM_BROWSER_MODULE_MOCKING",
-    "name": "Native ESM Module Mocking in Vitest Browser",
+    "name": "Native ESM Module Mocking in Vitest 4.x with { spy: true }",
     "errorPattern": "TypeError: Cannot redefine property|TypeError: ES Modules cannot be stubbed|Cannot spy on export",
     "fixStrategy": "AI_PROMPT",
-    "rootCause": "In native ESM (Vite/Vitest browser mode), imported module namespaces are sealed/frozen objects. Both sinon.stub and vi.spyOn fail with 'Cannot redefine property' or 'ES Modules cannot be stubbed'. Module-level mocks must use vi.mock() with vi.hoisted() mock functions.",
-    "rule": "Use 'const { mockFn } = vi.hoisted(() => ({ mockFn: vi.fn() })); vi.mock(\"path\", async importOriginal => ({ ...(await importOriginal()), targetFn: (...args) => mockFn(...args) }));'.",
+    "rootCause": "In native ESM (Vite/Vitest browser mode), imported module namespaces are sealed/frozen objects. In Vitest 4.1.10+, @vitest/mocker natively supports vi.mock('<module>', { spy: true }), which wraps every export in a mutable spy while preserving the original implementation by default.",
+    "rule": "Write `vi.mock('./module', { spy: true });` at the top of the test file and use `vi.spyOn(mod, 'targetFn')` in tests. `afterEach(() => vi.restoreAllMocks())` in `test/setup.ts` automatically restores the original implementation after every test without needing `vi.hoisted(...)`, `importOriginal`, or ternary wrappers.",
     "commentTemplate": ""
   },
   {
@@ -330,6 +330,96 @@
     "fixStrategy": "AI_PROMPT",
     "rootCause": "Any modifications to files under src/ (including type re-exports like 'export type { ... }' or bundle adjustments) affect the generated production bundle or public typings. A changeset is required for version tracking and release changelogs.",
     "rule": "If a migration PR makes ANY changes to files under src/ (even type-only re-exports or bundle adjustments), ALWAYS create a patch changeset in .changeset/<package>-vitest-migration.md.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "ESM_MODULE_SPY_TRUE",
+    "name": "ESM Module Spying with vi.mock('<module>', { spy: true }) and vi.restoreAllMocks()",
+    "errorPattern": "Cannot spy on export|Cannot redefine property|Module namespace is not configurable in ESM|getMockImplementation",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Vitest Browser Mode and Native ESM, module namespace exports are read-only, non-configurable bindings (`writable: false, configurable: false`). Calling `vi.spyOn(ns, 'fn')` without `vi.mock` throws `TypeError: Cannot spy on export`. Because this repo runs Vitest 4.1.10 (`@vitest/mocker`), `vi.mock('<module>', { spy: true })` natively wraps every export in a mutable spy while keeping the original implementation by default.",
+    "rule": "Declare `vi.mock('./module', { spy: true });` at the module top level and use `vi.spyOn(moduleNamespace, 'exportName')` in `beforeEach` or `it()` blocks. `afterEach(() => vi.restoreAllMocks())` in `test/setup.ts` automatically restores the original implementation after every test without needing `vi.hoisted(...)`, `importOriginal`, or ternary wrappers.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "FIRESTORE_VITEST_BROWSER_ISOLATION_AND_EQUALITY_MATCHER",
+    "name": "Firestore Vitest Browser Isolation, Mixed Type Re-Exports, and Scoped Equality Matchers",
+    "errorPattern": "Does not provide an export named|SimpleDb.delete.*blocked|addEqualityTesters.*stringMatching|this\\.test\\.fullTitle",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "1) Vitest browser mode runs each test file in an iframe with fileParallelism: true by default, causing shared IndexedDB databases (SimpleDb.delete) to block across concurrent iframes and running setupFiles 118 times. 2) Native Chromium ESM rejects type-only re-exports inside mixed value/type export statements (e.g., LogLevelString, EmulatorMockTokenOptions). 3) Calling expect.addEqualityTesters multiple times with isActive=true at describe-evaluation time causes later suites with empty matchers to shadow earlier suites. 4) Mocha's this.test!.fullTitle() throws synchronously in Vitest before .finally(() => simpleDb.close()) can run, leaving IndexedDB connections open.",
+    "rule": "1) Configure browser project with `fileParallelism: false, isolate: false` in `vitest.config.mjs`. 2) Add a pre-enforce `stripTypeExportsPlugin` using `ts.createProgram` emit for `.ts` files with `export {` on the browser project. 3) Scope `expect.addEqualityTesters` in `test/util/equality_matcher.ts` via a single registered tester backed by an `activeMatcherSets` stack pushed in `beforeAll` and popped in `afterAll`, and delegate objects with `asymmetricMatch`. 4) Replace `this.test!.fullTitle()` with `(expect.getState().currentTestName ?? 'test')` and wrap `withCustomPersistence` in `try / finally { await persistence.shutdown(); }`.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789755098559",
+    "name": "tsconfig-vitest-globals-and-exclude-config",
+    "errorPattern": "TS5055: Cannot write file '.*vitest\\.base\\.mjs' because it would overwrite input file|TS2304: Cannot find name 'expect'",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Vitest runs via esbuild without tsc or eslint. When Rollup/tsc builds a package whose tsconfig.json includes test files or omits vitest.config.mjs from exclude, tsc fails with TS2304 (missing Vitest globals) and TS5055 (allowJs traversing ../../config/vitest.base.mjs).",
+    "rule": "In packages whose tsconfig.json compiles test files or does not specify \"include\": [\"src\"], add \"../../node_modules/vitest/globals\" to compilerOptions.types and add \"vitest.config.mjs\" to exclude so rollup-plugin-typescript2 (allowJs: true) does not traverse ../../config/vitest.base.mjs. Always run yarn build and yarn lint locally before committing.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789755098789",
+    "name": "eslint-no-restricted-properties-skipIf",
+    "errorPattern": "Unexpected property 'skip' on object '(describe|it)'|no-restricted-properties",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "firebase-js-sdk's root .eslintrc.js bans describe.skip and it.skip via no-restricted-properties to prevent accidentally committed skipped tests, whereas Vitest's native describe.skipIf(cond) and it.skipIf(cond) are allowed.",
+    "rule": "Use describe.skipIf(condition) and it.skipIf(condition) instead of (condition ? describe.skip : describe) or (condition ? it.skip : it) ternaries. For custom Mocha wrappers (like asyncIt), augment Mocha.TestFunction with skipIf(condition: boolean).",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789755098867",
+    "name": "indexeddb-fake-timers-aftereach-ordering",
+    "errorPattern": "Test timed out in 15000ms.*get-installation-entry\\.test\\.ts",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Vitest, afterEach hooks run in LIFO (stack) order, and vi.runAllTimersAsync() only drains timers/microtasks, not browser IndexedDB transactions. Running vi.runAllTimersAsync() or vi.useRealTimers() before awaiting IndexedDB clear() allows dangling background promises (such as registerInstallation / waitUntilFidRegistration) to write to IndexedDB or schedule real timers after clear(), polluting IndexedDB for the next test.",
+    "rule": "In afterEach hooks that clean up both IndexedDB and fake timers, always await IndexedDB clear() BEFORE calling vi.clearAllTimers() and vi.useRealTimers(), and do not call vi.runAllTimersAsync() before clear() when background promises perform IndexedDB writes after timer resolution. Also disable browser.screenshotFailures in vitest.config.mjs so failure screenshots are never created or committed.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1789755563772",
+    "name": "preserve-require-project-json-for-tsc-rootdir",
+    "errorPattern": "The \"mainEntryPointFilePath\" path does not exist: .*dist/firestore/src/index\\.d\\.ts|TS2307: Cannot find module '\\.\\./\\.\\./\\.\\./\\.\\./\\.\\./config/project\\.json'",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Replacing require('../../../../../config/project.json') with ES import causes tsc to fail with TS2307 when config/project.json is absent, and when config/project.json is present, tsc includes config/project.json (at the repo root) in the program, shifting TypeScript's inferred rootDir from packages/ to the repo root and emitting declarations to dist/packages/<pkg>/src/index.d.ts instead of dist/<pkg>/src/index.d.ts.",
+    "rule": "Never replace CommonJS require('../../../../../config/project.json') with static ES import in TypeScript files compiled by tsconfig.json. Instead, keep require('../../../../../config/project.json') in the .ts file and transform it in vitest.config.mjs via a Vite pre-transform plugin.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1790020465103",
+    "name": "Targeted onUnhandledError Instead of dangerouslyIgnoreUnhandledErrors",
+    "errorPattern": "Vitest caught .* unhandled error|Unhandled Rejection|dangerouslyIgnoreUnhandledErrors",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Karma/Mocha ignored background unhandled promise rejections after test completion, whereas Vitest fails the run by default. Using `dangerouslyIgnoreUnhandledErrors: true` globally masks genuine bugs across all tests.",
+    "rule": "Never set `dangerouslyIgnoreUnhandledErrors: true` in `vitest.config.mjs`. First, await or `.catch(() => {})` intentional error promises directly in the test. If a background rejection occurs inside SDK initialization before a handler is attached during a negative test, define a targeted `config.test.onUnhandledError = error => { if (error?.message?.includes('<exact expected message>')) return false; }` at the top level of `vitest.config.mjs` so only that specific error is ignored and all other unhandled errors still fail the run.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1790020487016",
+    "name": "Vitest .skip Property Getter Breaks Chained Custom Modifiers",
+    "errorPattern": "TypeError: .*(skipEnterprise|skipEmulator|skipClassic).* is not a function",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "In Mocha, `it.skip` and `describe.skip` are static function objects that can be mutated once at import time. In Vitest, `.skip` is a property getter that returns a fresh function instance on every access, losing any custom properties attached earlier.",
+    "rule": "Wrap `.skip` accesses in a `getSkip(base)` helper that re-attaches custom chainable properties (`Object.assign(skipFn, { skipEnterprise: ..., skipEmulator: ... })`) to the newly returned function instance whenever `.skip` is evaluated.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1790020487332",
+    "name": "Empty or Conditionally Skipped Test Suites in Vitest",
+    "errorPattern": "No test suite found in file",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Mocha allowed test files with only a top-level `before()` hook and zero `it()` blocks, or `describe(...)` callbacks that returned early when disabled by an env flag. Vitest fails any `.test.ts` file that registers zero active or skipped tests.",
+    "rule": "Wrap standalone `beforeAll` setup files in `describe('...', () => { beforeAll(...); it('...', () => {}); })`. For suites conditionally disabled by environment variables, apply `.skip` at the suite definition (`(enabled ? describe : describe.skip)('...', () => { ... })`) rather than returning early inside the `describe` callback.",
+    "commentTemplate": ""
+  },
+  {
+    "id": "LEARNED_1790020487388",
+    "name": "Use toBeCloseTo Instead of Math.abs().toBeLessThanOrEqual()",
+    "errorPattern": "Math\\.abs\\(.*\\)\\.toBeLessThan|to\\.be\\.closeTo|to\\.be\\.approximately",
+    "fixStrategy": "AI_PROMPT",
+    "rootCause": "Converting floating-point approximations to `expect(Math.abs(a - b)).toBeLessThanOrEqual(...)` produces uninformative failure diffs and triggers code review bot suggestions.",
+    "rule": "Convert Chai `.to.be.closeTo(expected, delta)` / `.to.be.approximately(expected, delta)` to native Vitest `expect(actual).toBeCloseTo(expected, precisionDigits)` (e.g. `1e-7` -> `7`, `0.001` -> `3`, `0.1` -> `1`) instead of `expect(Math.abs(actual - expected)).toBeLessThanOrEqual(delta)`.",
     "commentTemplate": ""
   }
 ]
